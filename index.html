@@ -22,7 +22,7 @@
 @media(max-width:680px){.cup-history-grid{grid-template-columns:1fr}.history-kpis{width:100%}.history-kpis>div{flex:1;min-width:85px}.h2h-form{grid-template-columns:1fr}.h2h-form .versus{height:28px;min-width:0}.h2h-form .btn{grid-column:auto}.h2h-hero{grid-template-columns:1fr 1fr}.h2h-center{grid-column:1/-1;grid-row:1}.h2h-club{padding:14px}.h2h-club .crest.xl{width:64px;height:64px}.h2h-match{grid-template-columns:1fr;padding:10px}.h2h-meta,.h2h-match>small{text-align:left}.h2h-score{grid-template-columns:1fr 58px 1fr}.storage-state{flex-wrap:wrap}.top nav a{white-space:nowrap}}
 
 
-/* V6.4 WEB · modo público/administrador + nube */
+/* V6.4.1 WEB · modo público/administrador + nube */
 .cloudbar{position:relative;z-index:80;border-bottom:1px solid #1b3044;background:#071019;color:#dce9f7}.cloudbar-inner{max-width:1280px;margin:auto;min-height:42px;padding:6px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px}.cloudbar-left,.cloudbar-right{display:flex;align-items:center;gap:9px;min-width:0}.cloud-dot{width:8px;height:8px;border-radius:50%;background:#8294aa;box-shadow:0 0 0 4px rgba(130,148,170,.08);flex:none}.cloud-dot.ok{background:var(--green);box-shadow:0 0 0 4px rgba(103,239,174,.08)}.cloud-dot.warn{background:var(--gold);box-shadow:0 0 0 4px rgba(245,210,120,.08)}.cloud-dot.err{background:var(--red);box-shadow:0 0 0 4px rgba(255,125,148,.08)}.cloudbar b{font-size:9px;letter-spacing:.04em}.cloudbar span{font-size:8px;color:#7f95ad;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cloud-btn{min-height:29px;padding:0 10px;border:1px solid #2a425c;border-radius:8px;background:#101c29;color:#dbe8f6;font-size:8px;font-weight:900}.cloud-btn:hover{border-color:#4b6b8a}.cloud-btn.primary{background:rgba(103,239,174,.10);border-color:rgba(103,239,174,.3);color:var(--green)}.admin-badge{padding:5px 8px;border-radius:999px;border:1px solid rgba(103,239,174,.25);background:rgba(103,239,174,.06);color:var(--green)!important;font-weight:900}.public-badge{padding:5px 8px;border-radius:999px;border:1px solid #2a4058;background:#0d1824;color:#94a9c0!important;font-weight:900}.cloud-overlay{position:fixed;inset:0;z-index:200;background:rgba(1,5,9,.78);backdrop-filter:blur(12px);display:grid;place-items:center;padding:20px}.cloud-overlay[hidden]{display:none}.cloud-login{width:min(440px,100%);padding:26px;border:1px solid #29435e;border-radius:20px;background:linear-gradient(155deg,#101c29,#071019);box-shadow:0 30px 100px rgba(0,0,0,.55)}.cloud-login-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}.cloud-login h2{margin:4px 0 4px;font-size:22px}.cloud-login p{margin:0;color:#8095ad;font-size:10px;line-height:1.55}.cloud-close{width:34px;height:34px;border:1px solid #2a4057;border-radius:9px;background:#0b1621;color:#9eb1c6}.cloud-login form{display:grid;gap:12px}.cloud-login label{display:grid;gap:6px;font-size:8px;font-weight:900;letter-spacing:.08em;color:#7f93aa}.cloud-login input{width:100%;min-height:44px;padding:0 12px;border:1px solid #294059;border-radius:10px;background:#07111b;color:#f2f7ff;font-size:14px;outline:none}.cloud-login input:focus{border-color:#5d89b4}.cloud-login .login-error{min-height:15px;color:#ff9cad;font-size:9px}.cloud-login .login-actions{display:flex;gap:8px;justify-content:flex-end}.cloud-config-card{max-width:1280px;margin:18px auto 0;padding:0 24px}.cloud-config-card>div{padding:14px 16px;border:1px solid rgba(245,210,120,.25);border-radius:12px;background:rgba(245,210,120,.055);font-size:10px;line-height:1.55;color:#b9aa7c}.cloud-config-card b{color:var(--gold)}body.public-mode .admin-only{display:none!important}.sync-toast{position:fixed;right:18px;bottom:18px;z-index:190;max-width:320px;padding:10px 12px;border:1px solid #29435e;border-radius:10px;background:#0b1621;color:#a9b9cb;font-size:9px;box-shadow:0 15px 45px rgba(0,0,0,.35);opacity:0;transform:translateY(6px);pointer-events:none;transition:.18s}.sync-toast.show{opacity:1;transform:none}.sync-toast.ok{border-color:rgba(103,239,174,.28);color:#c9f4de}.sync-toast.err{border-color:rgba(255,125,148,.3);color:#ffc0ca}
 @media(max-width:680px){.cloudbar-inner{padding:7px 12px;align-items:flex-start}.cloudbar-left{flex:1}.cloudbar span{white-space:normal}.cloudbar-right{flex-wrap:wrap;justify-content:flex-end}.cloudbar-right .cloud-email{display:none}.cloud-config-card{padding:0 12px}}
 
@@ -66,7 +66,7 @@
 (function(){
   const cfg=window.LIGALAB_CLOUD_CONFIG||{};
   const valid=()=>/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(String(cfg.supabaseUrl||''))&&String(cfg.supabaseAnonKey||'').length>40&&!/PEGA_|TU_|YOUR_/i.test(String(cfg.supabaseAnonKey));
-  const Cloud={configured:false,client:null,user:null,admin:false,writesEnabled:false,timer:null,pendingState:null,channel:null,lastUpdated:null,lastError:null,_toastTimer:null,
+  const Cloud={configured:false,client:null,user:null,admin:false,writesEnabled:false,timer:null,pendingState:null,channel:null,lastUpdated:null,lastError:null,_toastTimer:null,saveChain:Promise.resolve(),saveBusy:false,applyTimer:null,lastSignalVersion:0,lastAppliedMs:0,dirtyRevision:0,savedRevision:0,
     isAdmin(){return !!(this.configured&&this.admin&&this.user)},
     toast(msg,kind='ok'){const el=document.getElementById('syncToast');if(!el)return;el.textContent=msg;el.className='sync-toast show '+kind;clearTimeout(this._toastTimer);this._toastTimer=setTimeout(()=>el.className='sync-toast',2400)},
     setStatus(label,text,tone=''){const dot=document.getElementById('cloudDot'),a=document.getElementById('cloudModeLabel'),b=document.getElementById('cloudStatusText');if(dot)dot.className='cloud-dot '+tone;if(a)a.textContent=label;if(b)b.textContent=text||''},
@@ -75,7 +75,7 @@
       document.body.classList.toggle('admin-mode',this.isAdmin());document.body.classList.toggle('public-mode',!this.isAdmin());
       if(login)login.hidden=this.isAdmin();if(logout)logout.hidden=!this.isAdmin();if(email)email.textContent=this.user?.email||'';
       if(badge){badge.textContent=this.isAdmin()?'ADMINISTRADOR':'PÚBLICO';badge.className=this.isAdmin()?'admin-badge':'public-badge'}
-      if(this.configured){this.setStatus(this.isAdmin()?'Nube conectada · escritura habilitada':'Nube conectada · solo lectura',this.lastUpdated?'Última actualización '+new Date(this.lastUpdated).toLocaleString('es-UY'):'Sincronización en tiempo real activa','ok')}
+      if(this.configured){this.setStatus(this.isAdmin()?'Nube conectada · escritura protegida':'Nube conectada · solo lectura',this.lastUpdated?'Última actualización '+new Date(this.lastUpdated).toLocaleString('es-UY'):'Sincronización en tiempo real activa','ok')}
       if(window.LigaLabApplyAccess)window.LigaLabApplyAccess();
     },
     async init(){
@@ -99,32 +99,73 @@
       this.renderAuth();this.toast('Sesión de administrador iniciada.');return true;
     },
     async signOut(){if(this.client)await this.client.auth.signOut();this.user=null;this.admin=false;this.writesEnabled=false;this.renderAuth();this.toast('Volviste al modo público.');},
-    async loadState(){
-      if(!this.configured)return null;const {data,error}=await this.client.from('ligalab_state').select('payload,updated_at').eq('id','main').maybeSingle();if(error)throw error;this.lastUpdated=data?.updated_at||null;this.renderAuth();const p=data?.payload;return p&&Array.isArray(p.leagues)&&Array.isArray(p.teams)?p:null;
+    async loadSnapshot(){
+      if(!this.configured)return null;
+      const {data,error}=await this.client.from('ligalab_state').select('payload,updated_at').eq('id','main').maybeSingle();if(error)throw error;
+      const updatedAt=data?.updated_at||null,updatedMs=updatedAt?Date.parse(updatedAt)||0:0;
+      this.lastUpdated=updatedAt;if(updatedMs>this.lastAppliedMs)this.lastAppliedMs=updatedMs;this.renderAuth();
+      const p=data?.payload;return {payload:p&&Array.isArray(p.leagues)&&Array.isArray(p.teams)?p:null,updatedAt,updatedMs};
     },
+    async loadState(){const snap=await this.loadSnapshot();return snap?.payload||null},
     enableWrites(){this.writesEnabled=true},
     scheduleSave(state){
-      if(!this.isAdmin()||!this.writesEnabled||window.__LigaLabApplyingRemote)return false;this.pendingState=JSON.parse(JSON.stringify(state));clearTimeout(this.timer);this.setStatus('Guardando cambios…','Preparando sincronización','warn');this.timer=setTimeout(()=>this.saveNow(),450);return true
+      if(!this.isAdmin()||!this.writesEnabled||window.__LigaLabApplyingRemote)return false;
+      this.pendingState=JSON.parse(JSON.stringify(state));this.dirtyRevision++;clearTimeout(this.timer);
+      this.setStatus('Guardando cambios…','Cola de sincronización protegida','warn');
+      this.timer=setTimeout(()=>this.flushPendingSave(),300);return true
     },
-    async saveNow(){
-      if(!this.pendingState||!this.isAdmin())return false;const payload=this.pendingState;this.pendingState=null;try{
-        const now=new Date().toISOString();const {error}=await this.client.from('ligalab_state').update({payload,updated_at:now,updated_by:this.user.id}).eq('id','main');if(error)throw error;
-        const version=Date.now();const {error:signalError}=await this.client.from('ligalab_signal').update({version,updated_at:now}).eq('id','main');if(signalError)throw signalError;
-        this.lastUpdated=now;this.renderAuth();this.toast('Cambios publicados en tiempo real.');return true
-      }catch(e){this.lastError=e;this.setStatus('Error al guardar en la nube',e.message||String(e),'err');this.toast('No se pudo publicar: '+(e.message||e),'err');return false}
+    flushPendingSave(){
+      clearTimeout(this.timer);this.timer=null;
+      if(!this.pendingState||!this.isAdmin()||!this.writesEnabled)return this.saveChain;
+      const payload=this.pendingState,revision=this.dirtyRevision;this.pendingState=null;
+      this.saveChain=this.saveChain.then(async()=>{
+        if(!this.isAdmin())return false;
+        this.saveBusy=true;
+        try{
+          const now=new Date().toISOString();
+          const {error}=await this.client.from('ligalab_state').update({payload,updated_at:now,updated_by:this.user.id}).eq('id','main');if(error)throw error;
+          const version=Math.max(Date.now(),this.lastSignalVersion+1);this.lastSignalVersion=version;
+          const {error:signalError}=await this.client.from('ligalab_signal').update({version,updated_at:now}).eq('id','main');if(signalError)throw signalError;
+          this.savedRevision=Math.max(this.savedRevision,revision);this.lastUpdated=now;this.lastAppliedMs=Math.max(this.lastAppliedMs,Date.parse(now)||0);this.renderAuth();this.toast('Cambios publicados en tiempo real.');return true;
+        }catch(e){
+          this.lastError=e;if(!this.pendingState)this.pendingState=payload;
+          this.setStatus('Error al guardar en la nube',e.message||String(e),'err');this.toast('No se pudo publicar: '+(e.message||e),'err');return false;
+        }finally{
+          this.saveBusy=false;
+          if(this.pendingState&&this.isAdmin()&&this.writesEnabled)setTimeout(()=>this.flushPendingSave(),0);
+        }
+      });
+      return this.saveChain;
     },
-    async applyRemote(){
-      try{const remote=await this.loadState();if(!remote||!window.AppModel)return;window.__LigaLabApplyingRemote=true;window.AppModel.state=window.AppModel.upgrade(remote);window.__LigaLabApplyingRemote=false;if(window.LigaLabRender)window.LigaLabRender();this.toast('La información pública se actualizó.');}catch(e){window.__LigaLabApplyingRemote=false;this.lastError=e;this.setStatus('Error de sincronización',e.message||String(e),'err')}
+    async saveNow(){return this.flushPendingSave()},
+    async applyRemote(force=false){
+      /* El único administrador nunca acepta ecos de Realtime de sus propias escrituras. */
+      if(this.isAdmin()&&!force)return false;
+      try{
+        const before=this.lastAppliedMs;const snap=await this.loadSnapshot();const remote=snap?.payload;
+        if(!remote||!window.AppModel)return false;
+        if(!force&&snap.updatedMs&&snap.updatedMs<=before)return false;
+        window.__LigaLabApplyingRemote=true;window.AppModel.state=window.AppModel.upgrade(remote);window.__LigaLabApplyingRemote=false;
+        if(window.LigaLabRender)window.LigaLabRender();this.toast('La información pública se actualizó.');return true;
+      }catch(e){window.__LigaLabApplyingRemote=false;this.lastError=e;this.setStatus('Error de sincronización',e.message||String(e),'err');return false}
     },
     startRealtime(){
-      if(!this.configured||this.channel)return;this.channel=this.client.channel('ligalab-live-public').on('postgres_changes',{event:'UPDATE',schema:'public',table:'ligalab_signal',filter:'id=eq.main'},()=>this.applyRemote()).subscribe(status=>{if(status==='SUBSCRIBED')this.renderAuth()});
+      if(!this.configured||this.channel)return;
+      this.channel=this.client.channel('ligalab-live-public').on('postgres_changes',{event:'UPDATE',schema:'public',table:'ligalab_signal',filter:'id=eq.main'},event=>{
+        const version=Number(event?.new?.version||0);
+        if(version&&version<=this.lastSignalVersion)return;
+        if(version)this.lastSignalVersion=version;
+        /* Solo los visitantes consumen Realtime. El administrador es la fuente de escritura. */
+        if(this.isAdmin())return;
+        clearTimeout(this.applyTimer);this.applyTimer=setTimeout(()=>this.applyRemote(false),120);
+      }).subscribe(status=>{if(status==='SUBSCRIBED')this.renderAuth()});
     }
   };
   window.LigaLabCloud=Cloud;window.LigaLabCloudReady=Cloud.init();
   const overlay=document.getElementById('adminOverlay'),open=()=>{if(!Cloud.configured){Cloud.toast('Primero configura Supabase.','err');return}overlay.hidden=false;setTimeout(()=>document.getElementById('cloudLoginEmail')?.focus(),20)},close=()=>{overlay.hidden=true;const e=document.getElementById('cloudLoginError');if(e)e.textContent=''};
   document.getElementById('cloudLoginBtn')?.addEventListener('click',open);document.getElementById('cloudCloseLogin')?.addEventListener('click',close);document.getElementById('cloudCancelLogin')?.addEventListener('click',close);document.getElementById('cloudLogoutBtn')?.addEventListener('click',()=>Cloud.signOut());
   overlay?.addEventListener('click',e=>{if(e.target===overlay)close()});
-  document.getElementById('cloudLoginForm')?.addEventListener('submit',async e=>{e.preventDefault();const err=document.getElementById('cloudLoginError');if(err)err.textContent='Verificando…';try{await Cloud.signIn(document.getElementById('cloudLoginEmail').value,document.getElementById('cloudLoginPassword').value);close();await Cloud.applyRemote()}catch(ex){if(err)err.textContent=ex.message||String(ex)}});
+  document.getElementById('cloudLoginForm')?.addEventListener('submit',async e=>{e.preventDefault();const err=document.getElementById('cloudLoginError');if(err)err.textContent='Verificando…';try{await Cloud.signIn(document.getElementById('cloudLoginEmail').value,document.getElementById('cloudLoginPassword').value);close();await Cloud.applyRemote(true)}catch(ex){if(err)err.textContent=ex.message||String(ex)}});
 })();
 </script>
 
@@ -496,7 +537,7 @@
     closeSeason(leagueId){
       const l=this.league(leagueId);if(!l)throw new Error('División no encontrada.');const c=this.state.competitions.find(x=>x.type==='league'&&x.leagueId===l.id&&x.season===l.currentSeason);if(!c)throw new Error('No hay temporada activa.');if(this.matches(c.id).some(m=>m.stage==='league'&&!m.played))throw new Error('Primero deben jugarse todos los partidos.');const table=this.standings(c.id),season=l.currentSeason;
       if(!this.state.seasonRecords.some(r=>r.leagueId===l.id&&r.season===season))this.state.seasonRecords.push({leagueId:l.id,season,championId:table[0]?.teamId||null,runnerUpId:table[1]?.teamId||null,table:table.map(x=>({...x}))});
-      // V6.4 WEB: las medias son estáticas. Cerrar una temporada no altera ningún jugador.
+      // V6.4.1 WEB: las medias son estáticas. Cerrar una temporada no altera ningún jugador.
       for(const s of table){
         const t=this.team(s.teamId),strength=this.teamStrength(t.id);
         for(const p of this.players(t.id)){p.lastDelta=0;p.lastSeasonChange=null}
@@ -533,7 +574,21 @@
     }
     movementForLeague(leagueId){return this.state.movements.filter(m=>m.upperLeagueId===Number(leagueId)||m.lowerLeagueId===Number(leagueId)).sort((a,b)=>b.season-a.season)}
   }
-  window.LigaLabAppReady=(async()=>{const localRaw=await Storage.init();const cloud=await (window.LigaLabCloudReady||Promise.resolve(null));let raw=localRaw;if(cloud?.configured){try{const remote=await cloud.loadState();raw=remote?JSON.stringify(remote):null}catch(e){window.LigaLabStorageWarning='No se pudo leer la nube: '+(e?.message||e)+'. Se muestra el guardado local si existe.';raw=localRaw}}window.AppModel=new Model(raw);await window.AppModel.flushSave();if(cloud?.configured){cloud.enableWrites();cloud.startRealtime()}return window.AppModel})();
+  window.LigaLabAppReady=(async()=>{
+    const localRaw=await Storage.init();const cloud=await (window.LigaLabCloudReady||Promise.resolve(null));let raw=localRaw,recoverLocal=false;
+    const progressScore=s=>{try{const x=typeof s==='string'?JSON.parse(s):s;if(!x)return -1;const played=(x.matches||[]).reduce((n,m)=>n+(m&&m.played?1:0),0);const seasons=(x.leagues||[]).reduce((n,l)=>n+Math.max(1,Number(l?.currentSeason)||1),0);return played+(x.seasonRecords||[]).length*10000+(x.movements||[]).length*1000+seasons*10+(x.competitions||[]).filter(c=>c?.status==='completed').length*100}catch(e){return -1}};
+    if(cloud?.configured){try{
+      const snap=await cloud.loadSnapshot(),remote=snap?.payload;
+      if(remote){
+        const localScore=progressScore(localRaw),remoteScore=progressScore(remote);
+        if(cloud.isAdmin()&&localRaw&&localScore>remoteScore){raw=localRaw;recoverLocal=true;window.LigaLabStorageWarning='Se detectó un guardado local más avanzado que la nube. Se conservará y volverá a publicar automáticamente.'}
+        else raw=JSON.stringify(remote);
+      }else raw=localRaw;
+    }catch(e){window.LigaLabStorageWarning='No se pudo leer la nube: '+(e?.message||e)+'. Se muestra el guardado local si existe.';raw=localRaw}}
+    window.AppModel=new Model(raw);await window.AppModel.flushSave();
+    if(cloud?.configured){cloud.enableWrites();cloud.startRealtime();if(recoverLocal&&cloud.isAdmin()){cloud.scheduleSave(window.AppModel.state);await cloud.flushPendingSave();cloud.toast('Guardado local recuperado y republicado.')}}
+    return window.AppModel
+  })();
 })();
 
 </script>
@@ -545,10 +600,10 @@
   const fmt=n=>Number(n||0).toFixed(2).replace('.',',');
   const team=id=>M().team(id),strength=id=>M().teamStrength(id);
 
-  const nav=`<header class="top"><div class="topinner"><a class="brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>CAREER UNIVERSE · V6.4 WEB</small></span></a><nav><a href="#/">Inicio</a><a href="#/leagues">Divisiones</a><a href="#/cups">Copas</a><a href="#/friendlies">Amistosos</a><a href="#/history">Historial</a><a href="#/h2h">Partidos H2H</a><a href="#/ranking">All-Time</a></nav></div></header>`;
+  const nav=`<header class="top"><div class="topinner"><a class="brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>CAREER UNIVERSE · V6.4.1 SYNC FIX</small></span></a><nav><a href="#/">Inicio</a><a href="#/leagues">Divisiones</a><a href="#/cups">Copas</a><a href="#/friendlies">Amistosos</a><a href="#/history">Historial</a><a href="#/h2h">Partidos H2H</a><a href="#/ranking">All-Time</a></nav></div></header>`;
   function flash(){let msg=null;try{msg=sessionStorage.getItem('flash');if(msg)sessionStorage.removeItem('flash')}catch(e){msg=window.__LigaLabFlash||null;window.__LigaLabFlash=null}if(!msg)return'';const [kind,...rest]=msg.split('|');return `<div class="flash ${kind}">${esc(rest.join('|'))}</div>`}
   function storageWarning(){if(window.LigaLabCloud?.configured)return'';const st=M()?.storageStatus?.()||{};const warning=st.warning||window.LigaLabStorageWarning;return warning?`<div class="flash error storage-warning"><b>Guardado temporal:</b> ${esc(warning)}</div>`:''}
-  function layout(body){return `${nav}<main class="wrap">${storageWarning()}${flash()}${body}</main><footer><b>LigaLab WEB v6.3</b><span>MVC · GitHub Pages + Supabase · público/administrador · tiempo real</span></footer>`}
+  function layout(body){return `${nav}<main class="wrap">${storageWarning()}${flash()}${body}</main><footer><b>LigaLab WEB v6.4.1</b><span>MVC · GitHub Pages + Supabase · público/administrador · tiempo real</span></footer>`}
   function badge(text,kind=''){return `<span class="pill ${kind}">${esc(text)}</span>`}
   function competitionHref(c){return c?.type==='friendly'?'#/friendlies':c?.type==='league'?`#/league/${c.leagueId}`:`#/cup/${c.id}`}
   function crest(t,size='md'){
@@ -565,7 +620,7 @@
 
   function dashboard(){
     const m=M(),ls=m.leagues(),ts=m.teams(),played=m.state.matches.filter(x=>x.played).length,rank=m.allTimeRanking().slice(0,5),history=m.allLeagueHistory().slice(0,4),active=m.competitions().filter(c=>c.status==='active').length;
-    return layout(`<section class="hero v5"><div class="hero-copy"><span class="eyebrow">SIMULADOR DE UNIVERSO FUTBOLÍSTICO · V6.4 WEB</span><h1>Una pirámide.<br><span>Décadas de historia.</span></h1><p>Gestiona divisiones de 16 clubes, copas paralelas y temporadas completas. Las 11 medias importan, pero la forma del día, los incidentes y el azar permiten batacazos reales. Cada partido se juega una sola vez y queda archivado.</p><div class="actions"><a class="btn primary" href="#/leagues">Ver divisiones</a><a class="btn" href="#/cups">Centro de copas</a><a class="btn" href="#/friendlies">Amistosos</a><a class="btn ghost" href="#/history">Ver historial</a></div></div><div class="command-card"><div class="command-top"><span>UNIVERSO ACTIVO</span><b>V6.4 WEB</b></div><div class="command-grid"><div><span>DIVISIONES</span><strong>${ls.length}</strong></div><div><span>CLUBES</span><strong>${ts.length}</strong></div><div><span>PARTIDOS</span><strong>${played}</strong></div><div><span>TORNEOS ACTIVOS</span><strong>${active}</strong></div></div><div class="command-note"><i></i><span>Motor V6.4 WEB: plantilla completa + líneas + forma del día + incidentes + azar controlado.</span></div></div></section>
+    return layout(`<section class="hero v5"><div class="hero-copy"><span class="eyebrow">SIMULADOR DE UNIVERSO FUTBOLÍSTICO · V6.4.1 WEB</span><h1>Una pirámide.<br><span>Décadas de historia.</span></h1><p>Gestiona divisiones de 16 clubes, copas paralelas y temporadas completas. Las 11 medias importan, pero la forma del día, los incidentes y el azar permiten batacazos reales. Cada partido se juega una sola vez y queda archivado.</p><div class="actions"><a class="btn primary" href="#/leagues">Ver divisiones</a><a class="btn" href="#/cups">Centro de copas</a><a class="btn" href="#/friendlies">Amistosos</a><a class="btn ghost" href="#/history">Ver historial</a></div></div><div class="command-card"><div class="command-top"><span>UNIVERSO ACTIVO</span><b>V6.4.1 WEB</b></div><div class="command-grid"><div><span>DIVISIONES</span><strong>${ls.length}</strong></div><div><span>CLUBES</span><strong>${ts.length}</strong></div><div><span>PARTIDOS</span><strong>${played}</strong></div><div><span>TORNEOS ACTIVOS</span><strong>${active}</strong></div></div><div class="command-note"><i></i><span>Motor V6.4.1 WEB: plantilla completa + líneas + forma del día + incidentes + azar controlado.</span></div></div></section>
     <section class="rulebar"><div><span>DIVISIÓN</span><b>16 clubes</b><small>máximo por categoría</small></div><div><span>MOVIMIENTOS</span><b>2 ↑ · 2 ↓</b><small>entre niveles consecutivos</small></div><div><span>COPA DE LA LIGA</span><b>Ilimitadas</b><small>Top 8 de Primera</small></div><div><span>COPA NACIONAL</span><b>Grupos de 4</b><small>todos los clubes</small></div></section>
     <div class="grid two dashboard-grid"><section class="panel">${sectionTitle('PIRÁMIDE','Divisiones','<a class="textlink" href="#/leagues">Ver →</a>')}${ls.length?ls.slice(0,8).map(l=>{const p=m.divisionProfile(l.level),n=m.teams(l.id).length;return `<a class="leaguecard" href="#/league/${l.id}"><div class="league-main"><span class="division-badge">${m.divisionLabel(l.level)}</span><div><h3>${esc(l.name)}</h3><p>${n}/${m.maxTeams()} clubes · Temporada ${l.currentSeason}</p></div></div><div class="league-power"><b>${fmt(p.totalMin)}–${fmt(p.totalMax)}</b><span>fuerza total ficticia</span></div></a>`}).join(''):'<div class="empty"><b>Tu universo está vacío.</b><span>Crea la División A para comenzar.</span></div>'}</section>
     <section class="panel">${sectionTitle('HALL OF FAME','Top histórico','<a class="textlink" href="#/ranking">Ranking completo →</a>')}${rank.length?rank.map(r=>`<a class="rankmini" href="#/team/${r.teamId}"><span class="rankpos">${r.pos}</span>${crest(team(r.teamId),'xs')}<span class="rankname"><b>${esc(r.name)}</b><small>${r.leagueTitles} ligas · ${r.nationalCups+r.leagueCups} copas</small></span><strong>${fmt(r.score)}</strong></a>`).join(''):'<div class="empty"><b>Sin temporadas cerradas.</b><span>El ranking crecerá con los años.</span></div>'}</section></div>
@@ -575,9 +630,9 @@
 
   function leagues(){
     const m=M(),ls=m.leagues();
-    return layout(`<div class="pagehead split"><div><span class="eyebrow">SISTEMA DE LIGAS · V6.4 WEB</span><h1>Pirámide de 16</h1><p>Cada división admite hasta 16 clubes. Al cerrar la misma temporada en dos categorías consecutivas, los 2 mejores suben y los 2 últimos bajan.</p></div><div class="rules"><b>REGLA CENTRAL</b><span>2 ascienden · 2 descienden</span></div></div>
+    return layout(`<div class="pagehead split"><div><span class="eyebrow">SISTEMA DE LIGAS · V6.4.1 WEB</span><h1>Pirámide de 16</h1><p>Cada división admite hasta 16 clubes. Al cerrar la misma temporada en dos categorías consecutivas, los 2 mejores suben y los 2 últimos bajan.</p></div><div class="rules"><b>REGLA CENTRAL</b><span>2 ascienden · 2 descienden</span></div></div>
     <div class="grid side"><section class="panel">${sectionTitle('NIVELES','Divisiones activas',badge(`${ls.length} creadas`))}${ls.length?`<div class="pyramid">${ls.map(l=>{const p=m.divisionProfile(l.level),n=m.teams(l.id).length;return `<a class="pyramid-row" href="#/league/${l.id}"><span class="division-badge big">${m.divisionLabel(l.level)}</span><div class="pyramid-copy"><h3>${esc(l.name)}</h3><p>${n}/${m.maxTeams()} clubes · Temporada ${l.currentSeason}</p><div class="capacity"><i style="width:${Math.min(100,n/m.maxTeams()*100)}%"></i></div><small>Ficticios: ${fmt(p.totalMin)}–${fmt(p.totalMax)} de fuerza total, en cualquier división</small></div><span class="arrow">→</span></a>`}).join('')}</div>`:'<div class="empty"><b>No hay divisiones.</b><span>Empieza por el nivel 1.</span></div>'}</section>
-    <aside class="panel sticky"><span class="eyebrow">NUEVA CATEGORÍA</span><h2>Crear división</h2><form id="createLeague" class="form"><label>Nombre<input name="name" required placeholder="Ej. Primera División"></label><label>Nivel<div class="input-with-tag"><input name="level" id="divisionLevel" type="number" min="1" step="1" value="${ls.length?Math.max(...ls.map(x=>x.level))+1:1}" required><span id="divisionPreview"></span></div></label><button class="btn primary">Crear división</button></form><div class="info-box"><b>Capacidad V6.4 WEB</b><p>Las nuevas divisiones quedan limitadas a 16 clubes. Las partidas antiguas con más de 16 se conservan sin borrar equipos, pero deberán regularizarse antes de iniciar una nueva temporada.</p></div></aside></div>`)
+    <aside class="panel sticky"><span class="eyebrow">NUEVA CATEGORÍA</span><h2>Crear división</h2><form id="createLeague" class="form"><label>Nombre<input name="name" required placeholder="Ej. Primera División"></label><label>Nivel<div class="input-with-tag"><input name="level" id="divisionLevel" type="number" min="1" step="1" value="${ls.length?Math.max(...ls.map(x=>x.level))+1:1}" required><span id="divisionPreview"></span></div></label><button class="btn primary">Crear división</button></form><div class="info-box"><b>Capacidad V6.4.1 WEB</b><p>Las nuevas divisiones quedan limitadas a 16 clubes. Las partidas antiguas con más de 16 se conservan sin borrar equipos, pero deberán regularizarse antes de iniciar una nueva temporada.</p></div></aside></div>`)
   }
 
   function teamRows(ts){const m=M();return ts.length?ts.slice().sort((a,b)=>m.teamStrengthCents(b.id)-m.teamStrengthCents(a.id)).map(t=>`<a class="teamrow rich" href="#/team/${t.id}"><span>${crest(t,'sm')}<span><strong>${esc(t.name)}</strong><small>${t.fictional?'Ficticio':'Plantilla cargada'}</small></span></span><span class="team-strength"><small>FUERZA</small><b>${fmt(m.teamStrength(t.id))}</b></span></a>`).join(''):'<div class="empty"><b>Sin clubes.</b><span>Agrega un plantel manual o genera uno ficticio.</span></div>'}
@@ -600,7 +655,7 @@
     const m=M(),l=m.league(id);if(!l)return layout('<section class="panel"><h2>División no encontrada</h2></section>');const ts=m.teams(l.id),current=m.currentLeagueComp(l.id),profile=m.divisionProfile(l.level),max=m.maxTeams();
     let comp='';
     if(current){const all=m.matches(current.id).filter(x=>x.stage==='league'),pending=all.filter(x=>!x.played).length,played=all.length-pending,finished=pending===0,next=m.nextMatchday(current.id);comp=`<section class="panel competition">${sectionTitle(`TEMPORADA ${current.season}`,'Clasificación',`<div class="actions">${next?`<button class="btn primary" data-action="simulate-next-date" data-id="${current.id}">▶ Simular Fecha ${next}</button>`:''}${pending?`<button class="btn" data-action="simulate-league-all" data-id="${current.id}">Simular restantes</button>`:''}${finished&&current.status!=='completed'?`<button class="btn success" data-action="close-season" data-id="${l.id}">Cerrar temporada</button>`:''}</div>`)}${standingsTable(l,current)}<div class="league-progress"><span style="width:${all.length?played/all.length*100:0}%"></span></div><div class="progress-copy"><b>${played}/${all.length}</b> partidos · ${pending?`${pending} pendientes`:'calendario completo'}</div></section><section class="panel">${sectionTitle('CALENDARIO','Ida y vuelta',badge(`${all.length} partidos`))}${fixtures(current)}</section>`}
-    else comp=`<section class="panel start-season"><span class="eyebrow">TEMPORADA ${l.currentSeason}</span><h2>Preparar calendario</h2><p>La liga se jugará a ida y vuelta. Con 16 clubes completos son 30 fechas y 240 partidos.${l.level===1?' Al iniciar Primera se crea además una Copa de la Liga automática para el Top 8.':''}</p><button class="btn primary" data-action="create-season" data-id="${l.id}" ${ts.length>max?'disabled':''}>Iniciar temporada ${l.currentSeason}</button>${ts.length>max?`<div class="warning">Esta liga conserva ${ts.length} clubes de V3. V6.4 WEB permite ${max}; no se borró ningún equipo automáticamente.</div>`:''}</section>`;
+    else comp=`<section class="panel start-season"><span class="eyebrow">TEMPORADA ${l.currentSeason}</span><h2>Preparar calendario</h2><p>La liga se jugará a ida y vuelta. Con 16 clubes completos son 30 fechas y 240 partidos.${l.level===1?' Al iniciar Primera se crea además una Copa de la Liga automática para el Top 8.':''}</p><button class="btn primary" data-action="create-season" data-id="${l.id}" ${ts.length>max?'disabled':''}>Iniciar temporada ${l.currentSeason}</button>${ts.length>max?`<div class="warning">Esta liga conserva ${ts.length} clubes de V3. V6.4.1 WEB permite ${max}; no se borró ningún equipo automáticamente.</div>`:''}</section>`;
     return layout(`<div class="pagehead split"><div class="titleline"><span class="division-badge xbig">${m.divisionLabel(l.level)}</span><div><span class="eyebrow">NIVEL ${l.level}</span><h1>${esc(l.name)}</h1><p>${ts.length}/${max} clubes · Temporada ${l.currentSeason}</p></div></div><div class="division-range"><span>RANGO FICTICIO</span><b>${fmt(profile.totalMin)}–${fmt(profile.totalMax)}</b><small>fuerza total del once generado · medias estáticas</small></div></div>
     <div class="grid side"><section><section class="panel">${sectionTitle('CLUBES','Planteles',badge(`${ts.length}/${max}`))}${teamRows(ts)}</section>${comp}${leagueArchive(l)}${movementHistory(l)}</section>
     <aside class="side-stack"><section class="panel sticky-soft"><span class="eyebrow">CLUB MANUAL</span><h2>Agregar equipo</h2><form id="createTeam" data-league="${l.id}" class="form"><label>Nombre<input name="name" required placeholder="Nombre del club"></label><label>Escudo <small>(opcional)</small><input name="logo" type="file" accept="image/png,image/jpeg,image/webp"></label><label>Plantilla<textarea name="rosterText" rows="10" required placeholder="0,37&#10;0,48 0,45 0,45 0,39&#10;0,66 0,57 0,57&#10;0,65 0,46 0,37"></textarea></label><button class="btn primary" ${ts.length>=max?'disabled':''}>Agregar club</button></form><div class="formula-hint"><b>Fuerza = suma exacta</b><span>Solo importan las 11 medias. El cálculo usa centésimas para mantener 2 decimales exactos.</span></div></section>
@@ -651,7 +706,7 @@
   function statsBlock(m){const sp=m.simulationProfile||{},s=sp.stats||{},h=s.home||{},a=s.away||{};return `<div class="match-stats"><div class="stat-row"><b>${h.possession??50}%</b><span>Posesión</span><b>${a.possession??50}%</b></div><div class="stat-row"><b>${h.shots??'-'}</b><span>Remates</span><b>${a.shots??'-'}</b></div><div class="stat-row"><b>${h.onTarget??'-'}</b><span>Al arco</span><b>${a.onTarget??'-'}</b></div><div class="stat-row"><b>${fmt(sp.homeXg||0)}</b><span>xG simulado</span><b>${fmt(sp.awayXg||0)}</b></div><div class="stat-row"><b>${h.corners??'-'}</b><span>Córners</span><b>${a.corners??'-'}</b></div><div class="stat-row discipline"><b>${h.fouls??'-'}</b><span>Faltas</span><b>${a.fouls??'-'}</b></div><div class="stat-row discipline"><b>${h.yellow??0}</b><span>Amarillas</span><b>${a.yellow??0}</b></div><div class="stat-row discipline"><b>${h.red??0}</b><span>Rojas</span><b>${a.red??0}</b></div><div class="stat-row discipline"><b>${h.penalties??0}</b><span>Penales en juego</span><b>${a.penalties??0}</b></div></div>`}
   function matchNarration(m,compact=false){
     const h=team(m.homeId),a=team(m.awayId),comp=M().competition(m.compId),isFriendly=comp?.type==='friendly',sp=m.simulationProfile||{},hl=sp.homeLines||{},al=sp.awayLines||{},decision=m.penaltyShootout?'PENALES':m.decision==='extra_time'?'TRAS ALARGUE':'FINAL',pen=m.penaltyShootout?`<div class="shootout-score"><span>Definición por penales</span><b>${m.penaltyShootout.home} — ${m.penaltyShootout.away}</b></div>`:'';
-    return `<article class="story ${compact?'compact':''}"><div class="story-score"><div>${crest(h,'sm')}<span>${esc(h?.name||'?')}</span><b>${m.homeScore}</b></div><i>${decision}</i><div><b>${m.awayScore}</b><span>${esc(a?.name||'?')}</span>${crest(a,'sm')}</div></div>${pen}${!compact?statsBlock(m):''}<div class="timeline">${(m.narration||[]).map(e=>`<div class="event ${e.type}"><span class="minute">${esc(e.label|| (e.minute===0?'INI':Math.floor(e.minute)+"'"))}</span><span class="event-dot"></span><p>${e.scoring?'<b>'+esc(e.score||'')+'</b> ':''}${esc(e.text)}</p></div>`).join('')}</div>${compact?'':`<div class="match-engine"><div><span>FUERZA</span><b>${fmt(sp.homeStrength??strength(m.homeId))}</b><small>${fmt(sp.awayStrength??strength(m.awayId))}</small></div><div><span>DEFENSA</span><b>${fmt(hl.def)}</b><small>${fmt(al.def)}</small></div><div><span>MEDIO</span><b>${fmt(hl.mid)}</b><small>${fmt(al.mid)}</small></div><div><span>ATAQUE</span><b>${fmt(hl.fwd)}</b><small>${fmt(al.fwd)}</small></div><div><span>FORMA DEL DÍA</span><b>${sp.homeForm>=0?'+':''}${fmt(sp.homeForm||0)}</b><small>${sp.awayForm>=0?'+':''}${fmt(sp.awayForm||0)}</small></div></div><div class="story-meta">V6.4 WEB pondera las 11 medias y las líneas del equipo, pero añade forma del día y azar controlado. ${isFriendly?'Amistoso: no altera tablas, títulos, ascensos ni All-Time Ranking. ':''}Tarjetas, expulsiones y penales solo afectan este partido; no generan sanciones para el siguiente. Resultado bloqueado 🔒</div>`}</article>`
+    return `<article class="story ${compact?'compact':''}"><div class="story-score"><div>${crest(h,'sm')}<span>${esc(h?.name||'?')}</span><b>${m.homeScore}</b></div><i>${decision}</i><div><b>${m.awayScore}</b><span>${esc(a?.name||'?')}</span>${crest(a,'sm')}</div></div>${pen}${!compact?statsBlock(m):''}<div class="timeline">${(m.narration||[]).map(e=>`<div class="event ${e.type}"><span class="minute">${esc(e.label|| (e.minute===0?'INI':Math.floor(e.minute)+"'"))}</span><span class="event-dot"></span><p>${e.scoring?'<b>'+esc(e.score||'')+'</b> ':''}${esc(e.text)}</p></div>`).join('')}</div>${compact?'':`<div class="match-engine"><div><span>FUERZA</span><b>${fmt(sp.homeStrength??strength(m.homeId))}</b><small>${fmt(sp.awayStrength??strength(m.awayId))}</small></div><div><span>DEFENSA</span><b>${fmt(hl.def)}</b><small>${fmt(al.def)}</small></div><div><span>MEDIO</span><b>${fmt(hl.mid)}</b><small>${fmt(al.mid)}</small></div><div><span>ATAQUE</span><b>${fmt(hl.fwd)}</b><small>${fmt(al.fwd)}</small></div><div><span>FORMA DEL DÍA</span><b>${sp.homeForm>=0?'+':''}${fmt(sp.homeForm||0)}</b><small>${sp.awayForm>=0?'+':''}${fmt(sp.awayForm||0)}</small></div></div><div class="story-meta">V6.4.1 WEB pondera las 11 medias y las líneas del equipo, pero añade forma del día y azar controlado. ${isFriendly?'Amistoso: no altera tablas, títulos, ascensos ni All-Time Ranking. ':''}Tarjetas, expulsiones y penales solo afectan este partido; no generan sanciones para el siguiente. Resultado bloqueado 🔒</div>`}</article>`
   }
   function matchPage(id){const m=M(),x=m.state.matches.find(v=>v.id===Number(id));if(!x||!x.played)return layout('<section class="panel"><h2>Partido no disponible</h2></section>');const c=m.competition(x.compId),back=competitionHref(c),label=c?.type==='friendly'?'AMISTOSO':x.stage==='group'?`Grupo ${x.groupId} · Fecha ${x.matchday}`:c.type==='league'?`Fecha ${x.matchday}`:`Ronda ${x.round}`;return layout(`<div class="pagehead split"><div><span class="eyebrow">RELATO PROFUNDO</span><h1>${esc(team(x.homeId)?.name||'?')} vs ${esc(team(x.awayId)?.name||'?')}</h1><p>${label} · ${esc(c.name)}</p></div><a class="btn" href="${back}">← Volver</a></div>${matchNarration(x)}`)}
   function report(compId,kind,num){
@@ -745,7 +800,7 @@
   window.LigaLabApplyAccess=function(){const admin=canWrite();document.body.classList.toggle('admin-mode',admin);document.body.classList.toggle('public-mode',!admin);document.querySelectorAll('#createLeague,#createTeam,#genTeam,#renameTeam,#replaceRoster,#teamLogo,#createLeagueCup,#createNational,#createFriendly,#importFile').forEach(el=>{const host=el.matches('input')?el.closest('label'):el;if(host)host.classList.toggle('admin-only',!admin)});document.querySelectorAll('[data-action]').forEach(el=>{if(adminActions.has(el.dataset.action)||el.dataset.action==='reset')el.classList.toggle('admin-only',!admin)});};
   function bindDynamic(){
     const lvl=document.getElementById('divisionLevel'),prev=document.getElementById('divisionPreview');if(lvl&&prev){const draw=()=>{const n=Math.max(1,Number(lvl.value)||1),p=M().divisionProfile(n);prev.textContent=`${M().divisionLabel(n)} · fuerza ficticia ${V().fmt(p.totalMin)}–${V().fmt(p.totalMax)}`};lvl.addEventListener('input',draw);draw()}
-    const f=document.getElementById('importFile');if(f)f.onchange=()=>{if(!canWrite()){notify('error','Solo el administrador puede importar la partida oficial.');render();return}const file=f.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{attempt(()=>M().import(r.result),()=> 'Partida importada y migrada a V6.4 WEB.');render()};r.readAsText(file)}
+    const f=document.getElementById('importFile');if(f)f.onchange=()=>{if(!canWrite()){notify('error','Solo el administrador puede importar la partida oficial.');render();return}const file=f.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{attempt(()=>M().import(r.result),()=> 'Partida importada y migrada a V6.4.1 WEB.');render()};r.readAsText(file)}
   }
 
   document.addEventListener('submit',async e=>{
