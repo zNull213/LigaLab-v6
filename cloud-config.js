@@ -4,6 +4,6 @@
   NUNCA pegues aquí una service_role key.
 */
 window.LIGALAB_CLOUD_CONFIG = {
-  supabaseUrl: "https://iknzlffbzluodangsqny.supabase.co"
+  supabaseUrl: "https://iknzlffbzluodangsqny.supabase.co",
   supabaseAnonKey: "sb_publishable_didJ9wFQDE-FdgzrccWkiA_r0sFRQas"
 };
