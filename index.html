@@ -179,6 +179,40 @@
 
 /* V10 · modo ocultar temporada y copas domésticas */
 .v10-privacy-toggle{width:100%;margin-top:10px;min-height:38px;border:1px solid #2b4057;border-radius:10px;background:#0d1722;color:#dce8f7;font-size:9px;font-weight:950;letter-spacing:.045em;padding:8px 10px}.v10-privacy-toggle.on{border-color:rgba(245,210,120,.42);color:var(--gold);background:rgba(245,210,120,.07)}.v10-hidden-lock{max-width:760px;margin:36px auto;padding:36px;text-align:center;border:1px solid rgba(245,210,120,.25);border-radius:22px;background:linear-gradient(145deg,rgba(245,210,120,.06),rgba(8,17,26,.98))}.v10-hidden-lock h1{margin:8px 0 10px;font-size:34px}.v10-hidden-lock p{color:var(--mut);line-height:1.7}.v10-hidden-lock .pill{margin-top:8px}.v10-spoiler-hidden{display:none!important}
+/* V10.1.2 · ocultación total de competiciones domésticas activas y finalizadas */
+body.v10-hide-domestic .leaguecard,
+body.v10-hide-domestic .cupcard,
+body.v10-hide-domestic .v8-season-card,
+body.v10-hide-domestic .v8-public-fixtures,
+body.v10-hide-domestic .fixture-list,
+body.v10-hide-domestic .groups-grid,
+body.v10-hide-domestic .cup-round,
+body.v10-hide-domestic .champ,
+body.v10-hide-domestic .history-preview,
+body.v10-hide-domestic .history-strip,
+body.v10-hide-domestic .history-board,
+body.v10-hide-domestic .history-season,
+body.v10-hide-domestic .season-record,
+body.v10-hide-domestic .final-table,
+body.v10-hide-domestic .history-table,
+body.v10-hide-domestic .history-tablewrap,
+body.v10-hide-domestic .archive-browser,
+body.v10-hide-domestic .archive-comp,
+body.v10-hide-domestic .cup-history-grid,
+body.v10-hide-domestic .cup-history-card,
+body.v10-hide-domestic .competition-history-banner,
+body.v10-hide-domestic .champions-wall,
+body.v10-hide-domestic .champion-tile,
+body.v10-hide-domestic .trophy-shelf,
+body.v10-hide-domestic .trophy-card,
+body.v10-hide-domestic .honours-timeline,
+body.v10-hide-domestic .honour-row,
+body.v10-hide-domestic .palmares-grid,
+body.v10-hide-domestic .palmares-kpi,
+body.v10-hide-domestic .memorable-list,
+body.v10-hide-domestic .memorable,
+body.v10-hide-domestic table.standings,
+body.v10-hide-domestic table.history-standings{display:none!important}
 </style>
 
 <style>
@@ -3829,14 +3863,24 @@ select[multiple]{min-height:180px}
     if(/^#\/report\/\d+\//.test(h)){const c=M().competition(Number(h.split('/')[2]));return v10DomesticComp(c)}
     return false;
   }
-  function v10PrivacyLock(){return layout(`<section class="v10-hidden-lock"><span class="eyebrow">V10 · MODO SIN SPOILERS</span><h1>Temporada y copas ocultas</h1><p>La temporada de liga, la Copa de la Liga y la Copa Nacional están ocultas. También se bloquean sus calendarios, tablas, cruces, resultados, relatos y archivos directos.</p><span class="pill">DATOS CONSERVADOS · SOLO OCULTOS</span><div class="actions" style="justify-content:center;margin-top:18px"><button class="btn primary" type="button" data-v10-spoilers>Volver a mostrar</button><a class="btn" href="#/clubs">Ir a clubes</a></div></section>`)}
+  function v10PrivacyLock(){return layout(`<section class="v10-hidden-lock"><span class="eyebrow">V10.1 · MODO SIN SPOILERS</span><h1>Ligas y copas ocultas</h1><p>Se ocultan las ligas, la Copa de la Liga y la Copa Nacional tanto si están en juego como si ya finalizaron. También quedan ocultos calendarios, tablas, cruces, resultados, campeones, temporadas archivadas, palmarés y archivos relacionados.</p><span class="pill">ACTIVAS + FINALIZADAS · DATOS CONSERVADOS</span><div class="actions" style="justify-content:center;margin-top:18px"><button class="btn primary" type="button" data-v10-spoilers>Volver a mostrar</button><a class="btn" href="#/clubs">Ir a clubes</a></div></section>`)}
   function v10ApplyPrivacy(){
     const on=v10HideDomestic();document.body.classList.toggle('v10-hide-domestic',on);
-    document.querySelectorAll('[data-v10-spoilers]').forEach(b=>{b.classList.toggle('on',on);b.textContent=on?'👁 Mostrar temporada y copas':'◉ Ocultar temporada y copas';b.setAttribute('aria-pressed',on?'true':'false')});
+    document.querySelectorAll('[data-v10-spoilers]').forEach(b=>{b.classList.toggle('on',on);b.textContent=on?'👁 Mostrar ligas y copas':'◉ Ocultar ligas y copas';b.setAttribute('aria-pressed',on?'true':'false')});
+    // Siempre limpia marcas de un render anterior antes de volver a aplicarlas.
+    document.querySelectorAll('.v10-spoiler-hidden').forEach(x=>x.classList.remove('v10-spoiler-hidden'));
     if(!on)return;
     const hrefs=['#/season-center','#/calendar','#/leagues','#/cups','#/history','#/archive-dates'];
-    document.querySelectorAll('a[href]').forEach(a=>{const h=a.getAttribute('href')||'';if(hrefs.some(x=>h===x||h.startsWith(x+'/'))||/^#\/season\//.test(h)||/^#\/league\//.test(h)||/^#\/competition-history\/(league|cup\/(league_cup|national_cup))/.test(h))a.classList.add('v10-spoiler-hidden')});
-    document.querySelectorAll('.history-preview,.history-strip,.cup-history-grid,.cup-history-card').forEach(x=>x.classList.add('v10-spoiler-hidden'));
+    document.querySelectorAll('a[href]').forEach(a=>{
+      const h=a.getAttribute('href')||'';
+      const domestic=hrefs.some(x=>h===x||h.startsWith(x+'/'))||/^#\/season\//.test(h)||/^#\/league\//.test(h)||/^#\/competition-history\/(league|cup\/(league_cup|national_cup))/.test(h);
+      if(!domestic)return;
+      a.classList.add('v10-spoiler-hidden');
+      // Si la liga/copa ya empezó, oculta también su tarjeta completa y no solo el enlace.
+      const card=a.closest('.leaguecard,.cupcard,.v8-season-card,.history-season,.season-record');
+      if(card)card.classList.add('v10-spoiler-hidden');
+    });
+    document.querySelectorAll('.history-preview,.history-strip,.history-board,.history-season,.season-record,.final-table,.history-table,.history-tablewrap,.archive-browser,.archive-comp,.cup-history-grid,.cup-history-card,.v8-public-fixtures,.fixture-list,.groups-grid,.cup-round,.competition-history-banner,.champions-wall,.champion-tile,.trophy-shelf,.trophy-card,.honours-timeline,.honour-row,.palmares-grid,.palmares-kpi,.memorable-list,.memorable,table.standings,table.history-standings').forEach(x=>x.classList.add('v10-spoiler-hidden'));
   }
   window.LigaLabV10HiddenRoute=v10HiddenRoute;
   window.LigaLabV10PrivacyLock=v10PrivacyLock;
