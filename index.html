@@ -3779,7 +3779,7 @@ select[multiple]{min-height:180px}
         if(result?.simulationProfile){result.engineVersion=10;result.simulationProfile.engineVersion=10;result.simulationProfile.eventDriven=true;result.simulationProfile.events=result.simulationProfile.events||result.narration;result.simulationProfile.injuries=injuries.map(z=>({playerId:z.player?.id,penalty:z.penalty,matches:z.matches}));result.simulationProfile.v10='spatial-event-engine'}
         return result
       };
-      window.LigaLabV10={version:'10.0.0',formations:FORMATION_SLOTS,positions:POS};
+      window.LigaLabV10={version:'10.1.0',formations:FORMATION_SLOTS,positions:POS};
     })();
 
     window.AppModel=new Model(raw);
@@ -3815,7 +3815,7 @@ select[multiple]{min-height:180px}
   const isReleased=c=>!!(c&&(isAdminView()||c.type==='friendly'||c.status==='completed'));
   const V10_HIDE_KEY='ligalab_v10_hide_domestic_spoilers';
   function v10HideDomestic(){try{return localStorage.getItem(V10_HIDE_KEY)==='1'}catch(e){return !!window.__LigaLabHideDomestic}}
-  function v10SetHideDomestic(on){try{localStorage.setItem(V10_HIDE_KEY,on?'1':'0')}catch(e){window.__LigaLabHideDomestic=!!on}render()}
+  function v10SetHideDomestic(on){try{localStorage.setItem(V10_HIDE_KEY,on?'1':'0')}catch(e){window.__LigaLabHideDomestic=!!on}if(typeof window.LigaLabRender==='function')window.LigaLabRender();else location.reload()}
   window.LigaLabV10HideDomestic=v10HideDomestic;
   window.LigaLabV10SetHideDomestic=v10SetHideDomestic;
   function v10DomesticComp(c){return !!c&&['league','league_cup','national_cup'].includes(c.type)}
@@ -3838,6 +3838,11 @@ select[multiple]{min-height:180px}
     document.querySelectorAll('a[href]').forEach(a=>{const h=a.getAttribute('href')||'';if(hrefs.some(x=>h===x||h.startsWith(x+'/'))||/^#\/season\//.test(h)||/^#\/league\//.test(h)||/^#\/competition-history\/(league|cup\/(league_cup|national_cup))/.test(h))a.classList.add('v10-spoiler-hidden')});
     document.querySelectorAll('.history-preview,.history-strip,.cup-history-grid,.cup-history-card').forEach(x=>x.classList.add('v10-spoiler-hidden'));
   }
+  window.LigaLabV10HiddenRoute=v10HiddenRoute;
+  window.LigaLabV10PrivacyLock=v10PrivacyLock;
+  window.LigaLabV10ApplyPrivacy=v10ApplyPrivacy;
+  window.LigaLabV10DomesticComp=v10DomesticComp;
+
   function releaseLock(title='Torneo en juego'){
     return `<section class="panel public-release-lock"><span class="eyebrow">PUBLICACIÓN DIFERIDA</span><h2>${esc(title)}</h2><p class="muted">Los cruces, rondas, resultados y relatos se publicarán automáticamente cuando termine la competición. El administrador puede seguir viéndolos mientras se juega.</p><div class="release-lock-badge">🔒 RESULTADOS RESERVADOS HASTA EL FINAL</div></section>`
   }
@@ -4711,6 +4716,11 @@ select[multiple]{min-height:180px}
 (async function(){
   await window.LigaLabAppReady;
   const M=()=>window.AppModel,V=()=>window.AppView,app=document.getElementById('app');
+  const v10HiddenRoute=h=>window.LigaLabV10HiddenRoute?.(h)??false;
+  const v10PrivacyLock=()=>window.LigaLabV10PrivacyLock?.()||'';
+  const v10ApplyPrivacy=()=>window.LigaLabV10ApplyPrivacy?.();
+  const v10HideDomestic=()=>window.LigaLabV10HideDomestic?.()??false;
+  const v10SetHideDomestic=on=>window.LigaLabV10SetHideDomestic?.(on);
   const notify=(kind,msg)=>{try{sessionStorage.setItem('flash',kind+'|'+msg)}catch(e){window.__LigaLabFlash=kind+'|'+msg}};
   const canWrite=()=>!!window.LigaLabCloud?.isAdmin?.();
 
