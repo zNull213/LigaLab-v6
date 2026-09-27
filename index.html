@@ -1932,20 +1932,6 @@ select[multiple]{min-height:180px}
       this.assertTeamCapacity(l.id);t.leagueId=l.id;t.federationId=l.federationId;t.status='active';t.retiredSeason=null;this.save();return t;
     };
 
-    P.setTeamDiscipline=function(teamId,role='Fairplay',points=0){
-      const t=this.team(teamId);if(!t)throw new Error('Equipo no encontrado.');
-      const n=Math.max(0,Math.floor(Math.abs(Number(points)||0)));
-      t.discordRole=String(role||'Fairplay').trim()||'Fairplay';
-      t.disciplinePenalty=n;
-      t.disciplineUpdatedAt=new Date().toISOString();
-      this.save();return t;
-    };
-    P.clearTeamDiscipline=function(teamId){
-      const t=this.team(teamId);if(!t)throw new Error('Equipo no encontrado.');
-      t.discordRole='Fairplay';t.disciplinePenalty=0;t.disciplineUpdatedAt=new Date().toISOString();
-      this.save();return t;
-    };
-
     P._pushLeagueMatch=function(c,f,phase='Liga',groupId=null,matchday=null){
       this.state.matches.push({
         id:this.id('match'),compId:c.id,stage:'league',phase,groupId,round:1,
@@ -1989,7 +1975,7 @@ select[multiple]{min-height:180px}
       const tab={};for(const id of c.teamIds){const t=this.team(id);tab[id]={teamId:id,name:t?.name||'?',strength:this.teamStrength(id),pj:0,g:0,e:0,p:0,gf:0,gc:0,dg:0,pts:0}}
       const ms=this.matches(c.id).filter(m=>m.stage==='league'&&m.played&&(!phase||m.phase===phase)&&(groupId==null||String(m.groupId||'')===String(groupId)));
       for(const m of ms){const h=tab[m.homeId],a=tab[m.awayId];if(!h||!a)continue;h.pj++;a.pj++;h.gf+=m.homeScore;h.gc+=m.awayScore;a.gf+=m.awayScore;a.gc+=m.homeScore;if(m.homeScore>m.awayScore){h.g++;a.p++;h.pts+=3}else if(m.homeScore<m.awayScore){a.g++;h.p++;a.pts+=3}else{h.e++;a.e++;h.pts++;a.pts++}}
-      const arr=Object.values(tab).filter(x=>!groupId||x.pj>0);for(const x of arr){x.dg=x.gf-x.gc;const t=this.team(x.teamId);x.basePts=x.pts;x.discordRole=t?.discordRole||'Fairplay';x.penaltyPts=c.status==='active'?Math.max(0,Number(t?.disciplinePenalty)||0):0;x.pts=Math.max(0,x.pts-x.penaltyPts)}
+      const arr=Object.values(tab).filter(x=>!groupId||x.pj>0);for(const x of arr)x.dg=x.gf-x.gc;
       arr.sort((a,b)=>b.pts-a.pts||b.dg-a.dg||b.gf-a.gf||Math.round(b.strength*100)-Math.round(a.strength*100)||a.name.localeCompare(b.name));
       arr.forEach((x,i)=>x.pos=i+1);return arr;
     };
@@ -3692,6 +3678,107 @@ select[multiple]{min-height:180px}
       }
     }
 
+    /* ============================================================
+       LIGALAB V10 · EVENT-DRIVEN TACTICAL MATCH ENGINE
+       Compatible con guardados V8/V9. Las estadísticas nacen de eventos.
+       ============================================================ */
+    (function(){
+      const P=Model.prototype, oldUpgrade=P.upgrade, oldPlay=P.playMatch;
+      const C=(v,a,b)=>Math.max(a,Math.min(b,v)), R=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+      const FORMATION_SLOTS={
+        '4-3-3':['GK','LB','CB','CB','RB','CM','DM','CM','LW','ST','RW'],
+        '4-2-3-1':['GK','LB','CB','CB','RB','DM','DM','LW','AM','RW','ST'],
+        '4-4-2':['GK','LB','CB','CB','RB','LM','CM','CM','RM','ST','ST'],
+        '4-4-1-1':['GK','LB','CB','CB','RB','LM','CM','CM','RM','SS','ST'],
+        '4-1-4-1':['GK','LB','CB','CB','RB','DM','LM','CM','CM','RM','ST'],
+        '4-5-1':['GK','LB','CB','CB','RB','LM','CM','DM','CM','RM','ST'],
+        '4-3-2-1':['GK','LB','CB','CB','RB','CM','DM','CM','AM','AM','ST'],
+        '4-3-1-2':['GK','LB','CB','CB','RB','CM','DM','CM','AM','ST','ST'],
+        '4-1-2-1-2':['GK','LB','CB','CB','RB','DM','CM','CM','AM','ST','ST'],
+        '4-2-2-2':['GK','LB','CB','CB','RB','DM','DM','AM','AM','ST','ST'],
+        '4-2-4':['GK','LB','CB','CB','RB','CM','CM','LW','ST','ST','RW'],
+        '4-1-3-2':['GK','LB','CB','CB','RB','DM','LM','CM','RM','ST','ST'],
+        '4-2-1-3':['GK','LB','CB','CB','RB','DM','DM','AM','LW','ST','RW'],
+        '3-5-2':['GK','CB','CB','CB','LWB','CM','DM','CM','RWB','ST','ST'],
+        '3-4-3':['GK','CB','CB','CB','LWB','CM','CM','RWB','LW','ST','RW'],
+        '3-4-2-1':['GK','CB','CB','CB','LWB','CM','CM','RWB','AM','AM','ST'],
+        '3-4-1-2':['GK','CB','CB','CB','LWB','CM','CM','RWB','AM','ST','ST'],
+        '3-1-4-2':['GK','CB','CB','CB','DM','LM','CM','CM','RM','ST','ST'],
+        '3-5-1-1':['GK','CB','CB','CB','LWB','CM','DM','CM','RWB','SS','ST'],
+        '3-2-4-1':['GK','CB','CB','CB','DM','DM','LM','AM','AM','RM','ST'],
+        '3-2-2-3':['GK','CB','CB','CB','DM','DM','AM','AM','LW','ST','RW'],
+        '3-2-3-2':['GK','CB','CB','CB','DM','DM','LM','AM','RM','ST','ST'],
+        '3-3-3-1':['GK','CB','CB','CB','LM','CM','RM','LW','AM','RW','ST'],
+        '3-3-1-3':['GK','CB','CB','CB','LM','CM','RM','AM','LW','ST','RW'],
+        '5-4-1':['GK','LWB','CB','CB','CB','RWB','LM','CM','CM','RM','ST'],
+        '5-3-2':['GK','LWB','CB','CB','CB','RWB','CM','DM','CM','ST','ST'],
+        '5-2-3':['GK','LWB','CB','CB','CB','RWB','CM','CM','LW','ST','RW'],
+        '5-2-2-1':['GK','LWB','CB','CB','CB','RWB','DM','DM','AM','AM','ST'],
+        '5-3-1-1':['GK','LWB','CB','CB','CB','RWB','CM','DM','CM','SS','ST'],
+        '5-2-1-2':['GK','LWB','CB','CB','CB','RWB','DM','DM','AM','ST','ST'],
+        '5-1-3-1':['GK','LWB','CB','CB','CB','RWB','DM','LM','CM','RM','ST'],
+        '3-6-1':['GK','CB','CB','CB','LWB','DM','CM','CM','AM','RWB','ST'],
+        '3-3-4':['GK','CB','CB','CB','LM','CM','RM','LW','ST','ST','RW'],
+        '2-3-5':['GK','CB','CB','DM','CM','CM','LW','AM','ST','AM','RW'],
+        '2-3-2-3':['GK','CB','CB','DM','CM','CM','AM','AM','LW','ST','RW'],
+        '1-3-3-3':['GK','LIB','LB','CB','RB','CM','DM','CM','LW','ST','RW']
+      };
+      const POS={GK:'POR',LB:'LI',RB:'LD',CB:'DFC',LIB:'LIB',LWB:'CAI',RWB:'CAD',DM:'MCD',CM:'MC',LM:'MI',RM:'MD',AM:'MCO',LW:'EI',RW:'ED',SS:'SD',ST:'DC'};
+      const roleFor=p=>({GK:'Portero tradicional',LB:'Lateral equilibrado',RB:'Lateral equilibrado',CB:'Central defensor',LIB:'Líbero',LWB:'Carrilero',RWB:'Carrilero',DM:'Pivote defensivo',CM:'Interior',LM:'Extremo tradicional',RM:'Extremo tradicional',AM:'Mediapunta',LW:'Extremo tradicional',RW:'Extremo tradicional',SS:'Segundo delantero',ST:'Delantero avanzado'})[p]||'Equilibrado';
+      const oldForms=P.formations;
+      P.formations=function(){
+        const base=oldForms.call(this), out={};
+        for(const [id,slots] of Object.entries(FORMATION_SLOTS)){
+          const b=base[id]||{};out[id]={label:id,attack:Number(b.attack||0),control:Number(b.control||0),defense:Number(b.defense||0),tempo:Number(b.tempo||1),chanceFor:Number(b.chanceFor||0),suppress:Number(b.suppress||0),shape:b.shape||'estructura dinámica',slots:slots.map((position,i)=>({position:POS[position]||position,enginePosition:position,index:i}))};
+        }return out
+      };
+      P.normalizeFormation=function(v){return FORMATION_SLOTS[String(v||'')]?String(v):'4-3-3'};
+      P.upgrade=function(x){x=oldUpgrade.call(this,x);x.version=10;for(const t of x.teams||[]){t.formation=this.normalizeFormation(t.formation);t.v10=t.v10||{};t.v10.mentality=t.v10.mentality||'balanced';t.v10.press=Number.isFinite(+t.v10.press)?+t.v10.press:55;t.v10.tempo=Number.isFinite(+t.v10.tempo)?+t.v10.tempo:52;t.v10.width=Number.isFinite(+t.v10.width)?+t.v10.width:50;t.v10.block=t.v10.block||'mid';t.v10.inPossession=t.v10.inPossession||null;t.v10.outPossession=t.v10.outPossession||null}for(const p of x.players||[]){p.v10=p.v10||{};p.v10.performancePenalty=Number(p.v10.performancePenalty||0);p.v10.recoveryMatches=Number(p.v10.recoveryMatches||0)}return x};
+      P.v10Lineup=function(teamId){const t=this.team(teamId),ps=this.players(teamId).slice(0,11),slots=FORMATION_SLOTS[this.normalizeFormation(t?.formation)]||FORMATION_SLOTS['4-3-3'];return slots.map((pos,i)=>{const p=ps[i]||{id:`ghost-${teamId}-${i}`,name:'Jugador',rating:.45};return {player:p,pos,position:POS[pos]||pos,role:p.v10?.role||roleFor(pos),rating:Number(p.rating||.45),penalty:Number(p.v10?.performancePenalty||0)}})};
+      P.v10TacticalState=function(teamId,scoreDiff=0,minute=1){const t=this.team(teamId)||{},x=t.v10||{},ment=x.mentality||'balanced';let risk={very_defensive:-.24,defensive:-.16,cautious:-.08,balanced:0,positive:.08,attacking:.16,very_attacking:.25}[ment]||0;if(scoreDiff<0&&minute>60)risk+=.08+(minute-60)/300;if(scoreDiff>0&&minute>70)risk-=.06;return {formation:this.normalizeFormation(t.formation),press:C(Number(x.press||55)/100+.35*risk,.18,.95),tempo:C(Number(x.tempo||52)/100+.25*risk,.2,.95),width:C(Number(x.width||50)/100,.25,.85),risk:C(.5+risk,.18,.88),block:x.block||'mid'}};
+      P.v10EffectiveRating=function(x,fatigue=0){return C(x.rating*(1-x.penalty/100)*(1-C(fatigue,0,.55)),.03,1.25)};
+      P.v10EventMatch=function(homeId,awayId,knockout=false,opts={}){
+        const H=this.team(homeId),A=this.team(awayId), HL=this.v10Lineup(homeId),AL=this.v10Lineup(awayId), fraction=C(Number(opts.regulationFraction||1),.05,1), maxMinute=Math.max(5,Math.round(90*fraction));
+        const events=[], stats={home:{possession:0,shots:0,onTarget:0,corners:0,dangerous:0,yellow:0,red:0,penalties:0,penaltyGoals:0,fouls:0,passes:0,completedPasses:0,progressivePasses:0,crosses:0,offsides:0,recoveries:0,interceptions:0,tackles:0,duels:0,saves:0,turnovers:0,touchesBox:0},away:{possession:0,shots:0,onTarget:0,corners:0,dangerous:0,yellow:0,red:0,penalties:0,penaltyGoals:0,fouls:0,passes:0,completedPasses:0,progressivePasses:0,crosses:0,offsides:0,recoveries:0,interceptions:0,tackles:0,duels:0,saves:0,turnovers:0,touchesBox:0}};
+        let hg=0,ag=0,hx=0,ax=0,hRed=0,aRed=0,possH=0,possA=0;const fatigue={H:0,A:0}, injured=[];
+        const sideData=s=>s==='H'?{team:H,line:HL,st:stats.home,opp:stats.away}:{team:A,line:AL,st:stats.away,opp:stats.home};
+        const quality=(line,types,f)=>{const q=line.filter(x=>types.includes(x.pos));const z=q.length?q:line;return z.reduce((a,x)=>a+this.v10EffectiveRating(x,f),0)/z.length};
+        for(let min=1;min<=maxMinute;min++){
+          const hs=this.v10TacticalState(homeId,hg-ag,min),as=this.v10TacticalState(awayId,ag-hg,min);fatigue.H=C(fatigue.H+(.00115+.00115*hs.press+.00055*hs.tempo),0,.38);fatigue.A=C(fatigue.A+(.00115+.00115*as.press+.00055*as.tempo),0,.38);
+          const hMid=quality(HL,['DM','CM','AM','LM','RM'],fatigue.H),aMid=quality(AL,['DM','CM','AM','LM','RM'],fatigue.A),homeControl=hMid*(.78+.25*hs.tempo)+.035,awayControl=aMid*(.78+.25*as.tempo);let pH=C(.5+(homeControl-awayControl)*.34+(Math.random()-.5)*.16,.27,.73);const side=Math.random()<pH?'H':'A';if(side==='H')possH++;else possA++;
+          const d=sideData(side),od=sideData(side==='H'?'A':'H'),ts=side==='H'?hs:as,os=side==='H'?as:hs,f=side==='H'?fatigue.H:fatigue.A,of=side==='H'?fatigue.A:fatigue.H;
+          const build=quality(d.line,['DM','CM','AM','LB','RB','LWB','RWB'],f),def=quality(od.line,['CB','LIB','DM','LB','RB'],of),atk=quality(d.line,['LW','RW','AM','SS','ST'],f),gk=quality(od.line,['GK'],of);
+          const passN=3+Math.floor(R(0,5)*(1-ts.tempo*.25));d.st.passes+=passN;let complete=0;for(let j=0;j<passN;j++){const pc=C(.72+(build-def)*.17-os.press*.11-f*.18,.54,.94);if(Math.random()<pc)complete++;else d.st.turnovers++}d.st.completedPasses+=complete;if(complete>=passN-1&&Math.random()<.45)d.st.progressivePasses++;
+          if(Math.random()<C(.10+os.press*.10,.08,.2)){od.st.recoveries++;if(Math.random()<.45)od.st.interceptions++}
+          const advance=C(.075+(atk-def)*.14+ts.risk*.045+ts.tempo*.025-os.press*.018,.025,.19);if(Math.random()<advance){d.st.dangerous++;if(Math.random()<.58)d.st.touchesBox++;if(Math.random()<.18)d.st.crosses++;
+            if(Math.random()<.08+.05*os.risk){d.st.offsides++;events.push({minute:min,type:'offside',side,text:`Fuera de juego de ${d.team.name}.`});continue}
+            const shooter=pick(d.line.filter(x=>['ST','SS','LW','RW','AM','CM'].includes(x.pos))||d.line), pressure=C(def*.48+os.press*.18,.1,.8), baseXg=C(.035+(atk-def)*.09+ts.risk*.035+(Math.random()<.16?.16:0)-pressure*.025,.015,.48);d.st.shots++;if(baseXg>.13)d.st.dangerous++;
+            const onTarget=Math.random()<C(.28+this.v10EffectiveRating(shooter,f)*.28-pressure*.08,.2,.68);if(onTarget)d.st.onTarget++;
+            const goalProb=C(baseXg*(.78+this.v10EffectiveRating(shooter,f)*.38-gk*.16),.008,.58),goal=onTarget&&Math.random()<goalProb;if(side==='H')hx+=baseXg;else ax+=baseXg;
+            if(goal){if(side==='H')hg++;else ag++;events.push({minute:min,type:'goal',side,scoring:true,playerId:shooter.player.id,xg:baseXg,text:`¡GOL de ${shooter.player.name||d.team.name}! ${d.team.name} convierte una ocasión de ${baseXg.toFixed(2)} xG.`})}else if(onTarget){od.st.saves++;events.push({minute:min,type:'save',side,text:`Remate de ${shooter.player.name||d.team.name} y parada del arquero rival.`})}else if(Math.random()<.16){d.st.corners++;events.push({minute:min,type:'corner',side,text:`Córner para ${d.team.name}.`})}
+          }
+          if(Math.random()<.105){d.st.duels++;od.st.duels++;if(Math.random()<.48)od.st.tackles++}
+          if(Math.random()<.022+.018*os.press){od.st.fouls++;if(Math.random()<.17){od.st.yellow++;events.push({minute:min,type:'yellow',side:side==='H'?'A':'H',text:`Tarjeta amarilla para ${od.team.name}.`});if(Math.random()<.035){od.st.red++;if(side==='H')aRed++;else hRed++;events.push({minute:min,type:'red',side:side==='H'?'A':'H',text:`¡Expulsión! ${od.team.name} debe reorganizarse con diez.`})}}}
+          if(Math.random()<.00075){const victim=pick(d.line.filter(x=>x.pos!=='GK')||d.line),pen=Math.round(R(5,16)),games=Math.random()<.7?1:2;injured.push({player:victim.player,penalty:pen,matches:games});events.push({minute:min,type:'injury',side,text:`${victim.player.name||'Un jugador'} sufre molestias. Podrá seguir disponible, pero tendrá -${pen}% de rendimiento durante ${games} fecha${games>1?'s':''}.`})}
+        }
+        const totalPoss=Math.max(1,possH+possA);stats.home.possession=Math.round(possH/totalPoss*100);stats.away.possession=100-stats.home.possession;
+        let decision='regulation',shootout=null,winnerId=hg>ag?homeId:ag>hg?awayId:null,extraHome=0,extraAway=0,extraHomeXg=0,extraAwayXg=0;
+        if(knockout&&hg===ag){const hq=quality(HL,['ST','SS','AM','CM'],fatigue.H),aq=quality(AL,['ST','SS','AM','CM'],fatigue.A);if(Math.random()<.46){decision='extra_time';const exH=Math.random()<C(.16+(hq-aq)*.12,.08,.28)?1:0,exA=Math.random()<C(.16+(aq-hq)*.12,.08,.28)?1:0;extraHome=exH;extraAway=exA;hg+=exH;ag+=exA;extraHomeXg=.22;extraAwayXg=.22;winnerId=hg>ag?homeId:ag>hg?awayId:null}if(hg===ag){decision='penalties';shootout=this.simulateShootout(homeId,awayId,this.teamProfile(homeId),this.teamProfile(awayId));winnerId=shootout.winnerId}}
+        return {engineVersion:10,homeScore:hg,awayScore:ag,regulationHomeScore:hg-extraHome,regulationAwayScore:ag-extraAway,extraHomeScore:extraHome,extraAwayScore:extraAway,homeXg:round2(hx),awayXg:round2(ax),extraHomeXg,extraAwayXg,homeProfile:this.teamProfile(homeId),awayProfile:this.teamProfile(awayId),stats,incidents:events,events,openHomeGoals:hg,openAwayGoals:ag,decision,shootout,winnerId,homeForm:1,awayForm:1,homeMomentum:1,awayMomentum:1,chaos:1,atmosphere:[],fraction,strengthGap:round2(this.teamStrength(homeId)-this.teamStrength(awayId)),strengthEdge:0,injured,redCards:{home:hRed,away:aRed},fatigue:{home:round2(fatigue.H),away:round2(fatigue.A)}};
+      };
+      P.simulateScore=function(homeId,awayId,knockout=false,opts={}){const z=this.v10EventMatch(homeId,awayId,knockout,opts);this._v10LastSim=z;return z};
+      P.buildNarration=function(m,sim){const h=this.team(m.homeId),a=this.team(m.awayId),ev=[{minute:0,label:'INI',type:'start',text:`Comienza ${h.name} vs ${a.name}. Motor V10 por eventos y espacios.`},...(sim.events||[])];ev.push({minute:90,label:'90+',type:'end',text:`Final: ${h.name} ${sim.homeScore} - ${sim.awayScore} ${a.name}.`});let sh=0,sa=0;ev.sort((x,y)=>x.minute-y.minute);for(const e of ev){if(e.scoring){if(e.side==='H')sh++;else sa++;e.score=`${sh}-${sa}`}if(!e.label)e.label=`${Math.floor(e.minute)}'`}return ev};
+      P.playMatch=function(m,c){
+        const existingH=this.players(m.homeId).map(p=>({p,left:Number(p.v10?.recoveryMatches||0)})),existingA=this.players(m.awayId).map(p=>({p,left:Number(p.v10?.recoveryMatches||0)}));
+        const result=oldPlay.call(this,m,c);const injuries=this._v10LastSim?.injured||[];this._v10LastSim=null;
+        for(const x of [...existingH,...existingA])if(x.left>0){x.p.v10=x.p.v10||{};x.p.v10.recoveryMatches=Math.max(0,x.left-1);if(!x.p.v10.recoveryMatches)x.p.v10.performancePenalty=0}
+        for(const z of injuries){const p=z.player;if(p&&typeof p==='object'){p.v10=p.v10||{};p.v10.performancePenalty=Math.max(Number(p.v10.performancePenalty||0),Number(z.penalty||0));p.v10.recoveryMatches=Math.max(Number(p.v10.recoveryMatches||0),Number(z.matches||1))}}
+        if(result?.simulationProfile){result.engineVersion=10;result.simulationProfile.engineVersion=10;result.simulationProfile.eventDriven=true;result.simulationProfile.events=result.simulationProfile.events||result.narration;result.simulationProfile.injuries=injuries.map(z=>({playerId:z.player?.id,penalty:z.penalty,matches:z.matches}));result.simulationProfile.v10='spatial-event-engine'}
+        return result
+      };
+      window.LigaLabV10={version:'10.0.0',formations:FORMATION_SLOTS,positions:POS};
+    })();
+
     window.AppModel=new Model(raw);
     await window.AppModel.flushSave();
 
@@ -3731,7 +3818,7 @@ select[multiple]{min-height:180px}
     const h=location.hash||'#/';
     const active=(href,prefixes=[])=>h===href||prefixes.some(p=>h.startsWith(p));
     const link=(href,icon,label,prefixes=[])=>`<a class="v8-nav-link ${active(href,prefixes)?'active':''}" href="${href}"><i>${icon}</i><span>${label}</span></a>`;
-    return `<div class="v8-nav-backdrop" data-nav-close></div><div class="v8-mobilebar"><button type="button" data-nav-toggle aria-label="Abrir navegación">☰</button><div><b>LigaLab V9</b><span>FEDERATION ENGINE</span></div><span>${isAdminView()?'ADMIN':'PÚBLICO'}</span></div><aside class="v8-side-nav"><a class="v8-nav-brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>V9.3.1 · TACTICAL PRESETS</small></span></a><div class="v8-nav-section"><span class="v8-nav-label">Universo</span><div class="v8-nav-links">${link('#/','⌂','Inicio',['#/home/federation/'])}${link('#/confederations','🌐','Confederaciones',['#/confederation/'])}${link('#/federations','⚑','Federaciones',['#/federation/'])}${link('#/season-center','◫','Centro de temporada',['#/season-center/'])}${link('#/calendar','▦','Calendario de Liga',['#/calendar/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Competiciones</span><div class="v8-nav-links">${link('#/leagues','▥','Divisiones',['#/league/'])}${link('#/cups','♛','Copas',['#/cup/'])}${link('#/friendlies','⚽','Amistosos',['#/friendlies/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Clubes</span><div class="v8-nav-links">${link('#/clubs','♟','Directorio',['#/team/','#/clubs/'])}${link('#/h2h','⇄','Cara a cara',['#/h2h/'])}${link('#/classics','◆','Clásicos',['#/classics/'])}${link('#/ranking','★','All-Time')}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Archivo</span><div class="v8-nav-links">${link('#/archive-dates','▤','Fechas archivadas',['#/archive-dates/'])}${link('#/history','⌛','Historial',['#/history/','#/season/','#/competition-history/'])}${link('#/news','✦','Diario',['#/news/'])}${link('#/records','◈','Récords',['#/records/'])}${link('#/search','⌕','Buscar',['#/search/'])}</div></div><div class="v8-nav-section admin-only"><span class="v8-nav-label">Administración</span><div class="v8-nav-links">${link('#/ai-teams','⚙','Administrar equipos',['#/ai-teams/'])}</div></div><div class="v8-nav-foot"><b>${isAdminView()?'Modo administrador':'Modo público'}</b>${isAdminView()?'Resultados en vivo y controles completos.':'Ligas activas muestran fixture sin resultados; copas activas permanecen cerradas.'}</div></aside>`
+    return `<div class="v8-nav-backdrop" data-nav-close></div><div class="v8-mobilebar"><button type="button" data-nav-toggle aria-label="Abrir navegación">☰</button><div><b>LigaLab V9</b><span>FEDERATION ENGINE</span></div><span>${isAdminView()?'ADMIN':'PÚBLICO'}</span></div><aside class="v8-side-nav"><a class="v8-nav-brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>V9.3.1 · TACTICAL PRESETS</small></span></a><div class="v8-nav-section"><span class="v8-nav-label">Universo</span><div class="v8-nav-links">${link('#/','⌂','Inicio',['#/home/federation/'])}${link('#/confederations','🌐','Confederaciones',['#/confederation/'])}${link('#/federations','⚑','Federaciones',['#/federation/'])}${link('#/season-center','◫','Centro de temporada',['#/season-center/'])}${link('#/calendar','▦','Calendario de Liga',['#/calendar/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Competiciones</span><div class="v8-nav-links">${link('#/leagues','▥','Divisiones',['#/league/'])}${link('#/cups','♛','Copas',['#/cup/'])}${link('#/friendlies','⚽','Amistosos',['#/friendlies/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Clubes</span><div class="v8-nav-links">${link('#/clubs','♟','Directorio',['#/team/','#/clubs/'])}${link('#/h2h','⇄','Cara a cara',['#/h2h/'])}${link('#/classics','◆','Clásicos',['#/classics/'])}${link('#/ranking','★','All-Time')}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Archivo</span><div class="v8-nav-links">${link('#/archive-dates','▤','Fechas archivadas',['#/archive-dates/'])}${link('#/history','⌛','Historial',['#/history/','#/season/','#/competition-history/'])}${link('#/news','✦','Diario',['#/news/'])}${link('#/records','◈','Récords',['#/records/'])}${link('#/search','⌕','Buscar',['#/search/'])}</div></div><div class="v8-nav-section admin-only"><span class="v8-nav-label">Administración</span><div class="v8-nav-links">${link('#/ai-teams','⚙','Equipos IA',['#/ai-teams/'])}</div></div><div class="v8-nav-foot"><b>${isAdminView()?'Modo administrador':'Modo público'}</b>${isAdminView()?'Resultados en vivo y controles completos.':'Ligas activas muestran fixture sin resultados; copas activas permanecen cerradas.'}</div></aside>`
   }
   function flash(){let msg=null;try{msg=sessionStorage.getItem('flash');if(msg)sessionStorage.removeItem('flash')}catch(e){msg=window.__LigaLabFlash||null;window.__LigaLabFlash=null}if(!msg)return'';const [kind,...rest]=msg.split('|');return `<div class="flash ${kind}">${esc(rest.join('|'))}</div>`}
   function storageWarning(){if(window.LigaLabCloud?.configured)return'';const st=M()?.storageStatus?.()||{};const warning=st.warning||window.LigaLabStorageWarning;return warning?`<div class="flash error storage-warning"><b>Guardado temporal:</b> ${esc(warning)}</div>`:''}
@@ -3820,7 +3907,7 @@ select[multiple]{min-height:180px}
 
   function dashboard(){
     const m=M(),ls=m.leagues(),ts=m.teams(),played=m.state.matches.filter(x=>x.played&&(isAdminView()||m.competition(x.compId)?.type==='friendly'||m.competition(x.compId)?.status==='completed')).length,rank=m.allTimeRanking(!isAdminView()).slice(0,5),history=m.allLeagueHistory().slice(0,4),active=m.competitions().filter(c=>c.status==='active').length;
-    return layout(`<section class="hero v5"><div class="hero-copy"><span class="eyebrow">LIGALAB V9.3.1 · TACTICAL PRESETS</span><h1>Un universo.<br><span>Federaciones, copas e historia.</span></h1><p>V9 convierte LigaLab en un universo federativo: motor V10 recalibrado basado en las 11 medias, la fuerza total y la táctica, calendario sin spoilers, reprogramaciones, eventos de estadio, archivo histórico y navegación renovada. Cada resultado definitivo sigue siendo irrepetible.</p><div class="actions"><a class="btn primary" href="#/season-center">Centro de temporada</a><a class="btn" href="#/calendar">Calendario</a><a class="btn" href="#/leagues">Ver divisiones</a><a class="btn" href="#/clubs">Directorio de clubes</a><a class="btn" href="#/cups">Centro de copas</a><a class="btn" href="#/classics">Posibles clásicos</a><a class="btn ghost" href="#/history">Ver historial</a></div></div><div class="command-card"><div class="command-top"><span>UNIVERSO ACTIVO</span><b>V9.3.1 WEB</b></div><div class="command-grid"><div><span>DIVISIONES</span><strong>${ls.length}</strong></div><div><span>CLUBES</span><strong>${ts.length}</strong></div><div><span>PARTIDOS</span><strong>${played}</strong></div><div><span>TORNEOS ACTIVOS</span><strong>${active}</strong></div></div><div class="command-note"><i></i><span>V9.3.1: formaciones con impacto alto, planes tácticos Haramball/Tiki-Taka/Gegenpress y motor V11 con menos azar.</span></div></div></section>
+    return layout(`<section class="hero v5"><div class="hero-copy"><span class="eyebrow">LIGALAB V10 · MOTOR ULTRARREALISTA</span><h1>Un universo.<br><span>Federaciones, copas e historia.</span></h1><p>V9 convierte LigaLab en un universo federativo: motor V10 recalibrado basado en las 11 medias, la fuerza total y la táctica, calendario sin spoilers, reprogramaciones, eventos de estadio, archivo histórico y navegación renovada. Cada resultado definitivo sigue siendo irrepetible.</p><div class="actions"><a class="btn primary" href="#/season-center">Centro de temporada</a><a class="btn" href="#/calendar">Calendario</a><a class="btn" href="#/leagues">Ver divisiones</a><a class="btn" href="#/clubs">Directorio de clubes</a><a class="btn" href="#/cups">Centro de copas</a><a class="btn" href="#/classics">Posibles clásicos</a><a class="btn ghost" href="#/history">Ver historial</a></div></div><div class="command-card"><div class="command-top"><span>UNIVERSO ACTIVO</span><b>V10 WEB</b></div><div class="command-grid"><div><span>DIVISIONES</span><strong>${ls.length}</strong></div><div><span>CLUBES</span><strong>${ts.length}</strong></div><div><span>PARTIDOS</span><strong>${played}</strong></div><div><span>TORNEOS ACTIVOS</span><strong>${active}</strong></div></div><div class="command-note"><i></i><span>V10: simulación por eventos, espacios, fatiga, roles y estructuras tácticas dinámicas.</span></div></div></section>
     <section class="rulebar"><div><span>DIVISIÓN</span><b>16 clubes</b><small>pirámides independientes</small></div><div><span>MOVIMIENTOS</span><b>↑ / ↓ libres</b><small>configurables por división</small></div><div><span>COPA DE LA LIGA</span><b>Ilimitadas</b><small>Top 8 de Primera</small></div><div><span>COPA NACIONAL</span><b>Grupos de 4</b><small>Top 2 → eliminatorias</small></div></section>
     <div class="grid two dashboard-grid"><section class="panel">${sectionTitle('PIRÁMIDE','Divisiones','<a class="textlink" href="#/leagues">Ver →</a>')}${ls.length?ls.slice(0,8).map(l=>{const p=m.divisionProfile(l.level),n=m.teams(l.id).length;return `<a class="leaguecard" href="#/league/${l.id}"><div class="league-main"><span class="division-badge">${m.divisionLabel(l.level)}</span><div><h3>${esc(l.name)}</h3><p>${n}/${m.maxTeams()} clubes · Temporada ${l.currentSeason}</p></div></div><div class="league-power"><b>${fmt(p.totalMin)}–${fmt(p.totalMax)}</b><span>fuerza total ficticia</span></div></a>`}).join(''):'<div class="empty"><b>Tu universo está vacío.</b><span>Crea la División A para comenzar.</span></div>'}</section>
     <section class="panel">${sectionTitle('HALL OF FAME','Top histórico','<a class="textlink" href="#/ranking">Ranking completo →</a>')}${rank.length?rank.map(r=>`<a class="rankmini" href="#/team/${r.teamId}"><span class="rankpos">${r.pos}</span>${crest(team(r.teamId),'xs')}<span class="rankname"><b>${esc(r.name)}</b><small>${r.leagueTitles} ligas · ${r.nationalCups+r.leagueCups} copas</small></span><strong>${fmt(r.score)}</strong></a>`).join(''):'<div class="empty"><b>Sin temporadas cerradas.</b><span>El ranking crecerá con los años.</span></div>'}</section></div>
@@ -3840,7 +3927,7 @@ select[multiple]{min-height:180px}
   function clubLegacyPanels(t){
     const m=M(),legacy=m.teamLegacy(t.id),timeline=m.teamTimeline(t.id),rivals=m.rivalries(t.id,3),canDelete=m.canDeleteGeneratedTeam(t.id),activeComp=m.teamInActiveCompetition(t.id);
     const status=t.status==='retired'?'<span class="pill status-retired">RETIRADO</span>':'<span class="pill live">ACTIVO</span>';
-    const actions=`<section class="panel admin-only">${sectionTitle('ADMINISTRACIÓN V9',t.fictional?'Equipo generado IA':'Equipo no IA',status)}<p class="muted">${t.status==='retired'?'El club no participa en nuevas competiciones, pero conserva toda su historia.':'Puedes retirarlo sin borrar su pasado. La eliminación definitiva solo se permite si no tiene historia oficial.'}</p><div class="actions">${t.status==='retired'?`<button class="btn success" data-action="reactivate-team" data-id="${t.id}">Reactivar club</button>`:`<button class="btn" data-action="retire-team" data-id="${t.id}" ${activeComp?'disabled':''}>Retirar del universo</button>`}${M().canDeleteTeam(t.id)?`<button class="btn danger" data-action="delete-team" data-id="${t.id}">Eliminar definitivamente</button>`:''}<button class="btn ghost" data-action="set-team-discipline" data-id="${t.id}">Rol Discord / Fair Play</button>${Number(t.disciplinePenalty||0)>0?`<button class="btn success" data-action="clear-team-discipline" data-id="${t.id}">Restaurar Fairplay</button>`:''}</div><div class="muted" style="margin-top:10px">Rol Discord: <b>${esc(t.discordRole||'Fairplay')}</b> · Penalización activa: <b>${Number(t.disciplinePenalty||0)} pts</b>. La quita se aplica a tablas de liga activas y no reescribe temporadas cerradas.</div>${activeComp?'<div class="warning">Mientras participa en una competición activa no puede retirarse, pero sí puede recibir una sanción disciplinaria.</div>':''}</section>`;
+    const actions=t.fictional?`<section class="panel admin-only">${sectionTitle('ADMINISTRACIÓN V9','Equipo generado',status)}<p class="muted">${t.status==='retired'?'El club no participa en nuevas competiciones, pero conserva toda su historia.':'Puedes retirarlo sin borrar su pasado. La eliminación total solo está disponible si nunca dejó historia oficial.'}</p><div class="actions">${t.status==='retired'?`<button class="btn success" data-action="reactivate-ai-team" data-id="${t.id}">Reactivar club</button>`:`<button class="btn" data-action="retire-ai-team" data-id="${t.id}" ${activeComp?'disabled':''}>Retirar del universo</button>`}${canDelete?`<button class="btn danger" data-action="delete-ai-team" data-id="${t.id}">Eliminar definitivamente</button>`:''}</div>${activeComp?'<div class="warning">Participa en una competición activa: termina o elimina esa competición antes de retirarlo.</div>':''}</section>`:'';
     const rivalHtml=rivals.length?`<div class="rivalry-list">${rivals.map(r=>{const other=team(r.teamAId===t.id?r.teamBId:r.teamAId);return `<a class="rivalry-card" href="#/h2h/${t.id}/${other?.id}"><div>${crest(t,'xs')}<b>${esc(t.name)}</b></div><div class="rv-mid"><b>${r.played}</b><small>${r.finals} finales · ${r.knockouts} cruces</small></div><div>${crest(other,'xs')}<b>${esc(other?.name||'?')}</b></div></a>`}).join('')}</div>`:'<div class="empty slim"><b>Sin rivalidad consolidada.</b><span>Se necesita más historia compartida.</span></div>';
     return `<section class="panel">${sectionTitle('LEGADO V9','Historia del club',status)}<div class="legacy-kpis"><div><b>${legacy.pj}</b><span>PJ oficiales</span></div><div><b>${legacy.leagueTitles}</b><span>Ligas</span></div><div><b>${legacy.leagueCups+legacy.nationalCups}</b><span>Copas</span></div><div><b>${legacy.promotions}</b><span>Ascensos</span></div></div></section>
     <div class="grid two"><section class="panel">${sectionTitle('LÍNEA TEMPORAL',`${esc(t.name)} a través de las temporadas`)}<div class="timeline-v7">${timeline.length?timeline.map(e=>`<div class="tl-item"><span class="tl-season">T${e.season}</span><i class="tl-dot"></i><div class="tl-copy"><b>${esc(e.title)}</b><span>${esc(e.text)}</span></div></div>`).join(''):'<div class="empty slim"><b>Sin historia todavía.</b></div>'}</div></section><section class="panel">${sectionTitle('RIVALIDADES','Cruces que marcaron al club')}${rivalHtml}</section></div>${actions}`
@@ -3965,7 +4052,7 @@ select[multiple]{min-height:180px}
   }
   function standingsTable(l,c){
     const m=M(),st=m.standings(c.id),hasUp=!!m.leagueByLevel(l.level-1),hasDown=!!m.leagueByLevel(l.level+1),n=st.length,count=m.promotionCount();
-    return `<div class="tablewrap"><table class="standings"><thead><tr><th>#</th><th>Club</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th>PTS</th><th>DISC</th><th>Fuerza</th></tr></thead><tbody>${st.map(s=>{const promo=hasUp&&s.pos<=Math.min(count,Math.floor(n/2)),releg=hasDown&&s.pos>n-Math.min(count,Math.floor(n/2));return `<tr class="${promo?'promo':releg?'releg':''}"><td><b>${s.pos}</b>${promo?'<em>↑</em>':releg?'<em>↓</em>':''}</td><td>${teamLink(s.teamId)}</td><td>${s.pj}</td><td>${s.g}</td><td>${s.e}</td><td>${s.p}</td><td>${s.gf}</td><td>${s.gc}</td><td>${s.dg>0?'+':''}${s.dg}</td><td><strong>${s.pts}</strong>${s.penaltyPts?`<small style="display:block;color:var(--red)">-${s.penaltyPts}</small>`:''}</td><td><small>${esc(s.discordRole||'Fairplay')}${s.penaltyPts?` · -${s.penaltyPts} pts`:''}</small></td><td>${fmt(s.strength)}</td></tr>`}).join('')}</tbody></table></div>`
+    return `<div class="tablewrap"><table class="standings"><thead><tr><th>#</th><th>Club</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th>PTS</th><th>Fuerza</th></tr></thead><tbody>${st.map(s=>{const promo=hasUp&&s.pos<=Math.min(count,Math.floor(n/2)),releg=hasDown&&s.pos>n-Math.min(count,Math.floor(n/2));return `<tr class="${promo?'promo':releg?'releg':''}"><td><b>${s.pos}</b>${promo?'<em>↑</em>':releg?'<em>↓</em>':''}</td><td>${teamLink(s.teamId)}</td><td>${s.pj}</td><td>${s.g}</td><td>${s.e}</td><td>${s.p}</td><td>${s.gf}</td><td>${s.gc}</td><td>${s.dg>0?'+':''}${s.dg}</td><td><strong>${s.pts}</strong></td><td>${fmt(s.strength)}</td></tr>`}).join('')}</tbody></table></div>`
   }
   function archivedStandingsTable(r){
     const rows=(r?.table||[]).slice().sort((a,b)=>(a.position??99)-(b.position??99));
@@ -4182,9 +4269,9 @@ select[multiple]{min-height:180px}
   function classics(){return classicsPage()}
 
   function aiTeams(){
-    const m=M();if(!isAdminView())return layout('<section class="panel"><h2>Área de administrador</h2><p class="muted">La administración de equipos no está disponible en modo público.</p></section>');const teams=m.state.teams.slice().sort((a,b)=>(a.status==='retired')-(b.status==='retired')||a.name.localeCompare(b.name,'es')),deletable=teams.filter(t=>m.canDeleteTeam(t.id)).length,retired=teams.filter(t=>t.status==='retired').length;
-    const rows=teams.length?teams.map(t=>{const l=m.league(t.leagueId),hasHistory=m.teamHasHistory(t.id),activeComp=m.teamInActiveCompetition(t.id);return `<div class="ai-row"><div class="club">${crest(t,'sm')}<span><b>${esc(t.name)}</b><small>${esc(l?.name||'Sin división')} · ${t.fictional?'IA':'NO IA'} · ${hasHistory?'con historia':'sin historia'} · ${esc(t.discordRole||'Fairplay')}${Number(t.disciplinePenalty||0)?` (-${Number(t.disciplinePenalty)} pts)`:''}</small></span></div><span class="${t.status==='retired'?'status-retired':'status-active'}">${t.status==='retired'?'RETIRADO':'ACTIVO'}</span><span>Fuerza ${fmt(m.teamStrength(t.id))}</span><div class="actions"><a class="btn tiny ghost" href="#/team/${t.id}">Ver</a><button class="btn tiny ghost" data-action="set-team-discipline" data-id="${t.id}">Disc/Fairplay</button>${t.status==='retired'?`<button class="btn tiny success" data-action="reactivate-team" data-id="${t.id}">Reactivar</button>`:`<button class="btn tiny" data-action="retire-team" data-id="${t.id}" ${activeComp?'disabled':''}>Retirar</button>`}${m.canDeleteTeam(t.id)?`<button class="btn tiny danger" data-action="delete-team" data-id="${t.id}">Eliminar</button>`:''}</div></div>`}).join(''):'<div class="empty"><b>No hay equipos.</b></div>';
-    return layout(`<div class="pagehead split"><div><span class="eyebrow">ADMINISTRACIÓN V9</span><h1>Administrar equipos</h1><p>Gestiona equipos IA y no IA: retiro, eliminación sin historia y sanciones por rol de Discord/Fair Play.</p></div><div class="history-kpis"><div><b>${teams.length}</b><span>equipos totales</span></div><div><b>${retired}</b><span>retirados</span></div><div><b>${deletable}</b><span>eliminables</span></div></div></div><section class="panel"><div class="actions"><button class="btn danger" data-action="purge-ai-teams">Limpiar IA sin historia</button></div><div class="ai-table">${rows}</div></section>`)
+    const m=M();if(!isAdminView())return layout('<section class="panel"><h2>Área de administrador</h2><p class="muted">La administración de equipos IA no está disponible en modo público.</p></section>');const teams=m.generatedTeams(),deletable=teams.filter(t=>m.canDeleteGeneratedTeam(t.id)).length,retired=teams.filter(t=>t.status==='retired').length;
+    const rows=teams.length?teams.map(t=>{const l=m.league(t.leagueId),hasHistory=m.teamHasHistory(t.id),activeComp=m.teamInActiveCompetition(t.id);return `<div class="ai-row"><div class="club">${crest(t,'sm')}<span><b>${esc(t.name)}</b><small>${esc(l?.name||'Sin división')} · ${hasHistory?'con historia':'sin historia'}</small></span></div><span class="${t.status==='retired'?'status-retired':'status-active'}">${t.status==='retired'?'RETIRADO':'ACTIVO'}</span><span>Fuerza ${fmt(m.teamStrength(t.id))}</span><div class="actions"><a class="btn tiny ghost" href="#/team/${t.id}">Ver</a>${t.status==='retired'?`<button class="btn tiny success" data-action="reactivate-ai-team" data-id="${t.id}">Reactivar</button>`:`<button class="btn tiny" data-action="retire-ai-team" data-id="${t.id}" ${activeComp?'disabled':''}>Retirar</button>`}${m.canDeleteGeneratedTeam(t.id)?`<button class="btn tiny danger" data-action="delete-ai-team" data-id="${t.id}">Eliminar</button>`:''}</div></div>`}).join(''):'<div class="empty"><b>No hay equipos generados.</b></div>';
+    return layout(`<div class="pagehead split"><div><span class="eyebrow">ADMINISTRACIÓN V9</span><h1>Equipos generados por IA</h1><p>Elimina clubes sin historia, retira clubes históricos sin borrar su pasado y reactívalos más adelante.</p></div><div class="history-kpis"><div><b>${teams.length}</b><span>IA totales</span></div><div><b>${retired}</b><span>retirados</span></div><div><b>${deletable}</b><span>eliminables</span></div></div></div><section class="panel"><div class="actions"><button class="btn danger" data-action="purge-ai-teams">Limpiar IA sin historia</button></div><div class="ai-table">${rows}</div></section>`)
   }
 
   function seasonPage(season){
@@ -4627,7 +4714,7 @@ select[multiple]{min-height:180px}
   }
 
   const adminForms=new Set(['createLeague','createLeagueV9','createLeagueFederation','editLeagueRules','createTeam','genTeam','renameTeam','replaceRoster','teamLogo','createLeagueCup','createLeagueCupV9','createNational','createNationalV9','createFriendly','createConfederation','editConfederation','createFederation','editFederation','assignLeagueFederation','transferTeam','createFederationCup','createConfederationCup','createInternationalCup','changeCupFormat','teamTactics']);
-  const adminActions=new Set(['create-season','simulate-date','simulate-next-date','simulate-league-all','close-season','simulate-national-group-date','simulate-national-group-next','simulate-national-groups-all','simulate-round','simulate-cup-all','delete-cup','change-cup-season','retire-ai-team','reactivate-ai-team','delete-ai-team','purge-ai-teams','clean-logo-bg','remove-logo','repair-overflow','set-team-discipline','clear-team-discipline','retire-team','reactivate-team','delete-team','cup-season-down','publish-now','reset']);
+  const adminActions=new Set(['create-season','simulate-date','simulate-next-date','simulate-league-all','close-season','simulate-national-group-date','simulate-national-group-next','simulate-national-groups-all','simulate-round','simulate-cup-all','delete-cup','change-cup-season','retire-ai-team','reactivate-ai-team','delete-ai-team','purge-ai-teams','clean-logo-bg','remove-logo','repair-overflow','retire-team','reactivate-team','delete-team','cup-season-down','publish-now','reset']);
   function go(hash){if(location.hash===hash)render();else location.hash=hash}
   function attempt(fn,success){try{const x=fn();if(success)notify('ok',success(x));return {ok:true,value:x}}catch(e){notify('error',e.message||String(e));return {ok:false,error:e}}}
   async function attemptAsync(fn,success){try{const x=await fn();if(success)notify('ok',success(x));return {ok:true,value:x}}catch(e){notify('error',e.message||String(e));return {ok:false,error:e}}}
@@ -4954,15 +5041,6 @@ select[multiple]{min-height:180px}
         render();
         return r
       })
-    }else if(a==='set-team-discipline'){
-      const t=M().team(id);if(!t)return;
-      const role=prompt('Rol de Discord / estado disciplinario:',t.discordRole||'Fairplay');if(role===null)return;
-      const raw=prompt('Puntos a descontar en las ligas activas (0 = sin quita):',String(Number(t.disciplinePenalty||0)));if(raw===null)return;
-      const pts=Math.max(0,Math.floor(Math.abs(Number(raw)||0)));
-      attempt(()=>M().setTeamDiscipline(id,role,pts),x=>`${x.name}: ${x.discordRole} · -${x.disciplinePenalty} pts.`);render()
-    }else if(a==='clear-team-discipline'){
-      const t=M().team(id);if(!t)return;
-      attempt(()=>M().clearTeamDiscipline(id),x=>`${x.name}: restaurado a Fairplay sin quita de puntos.`);render()
     }else if(a==='retire-team'){
       const t=M().team(id);if(!t)return;if(!confirm(`¿Retirar a "${t.name}"? Su historia seguirá visible.`))return;attempt(()=>M().retireTeam(id),x=>`${x.name} retirado sin borrar su historia.`);render()
     }else if(a==='reactivate-team'){
