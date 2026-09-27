@@ -4980,6 +4980,20 @@ select[multiple]{min-height:180px}
   window.LigaLabApplyAccess=function(){const admin=canWrite();document.body.classList.toggle('admin-mode',admin);document.body.classList.toggle('public-mode',!admin);document.querySelectorAll('#createLeague,#createLeagueV9,#createLeagueFederation,#editLeagueRules,#editLeagueSeason,#createTeam,#genTeam,#renameTeam,#replaceRoster,#teamLogo,#createLeagueCup,#createLeagueCupV9,#createNational,#createNationalV9,#createFriendly,#createConfederation,#editConfederation,#createFederation,#editFederation,#assignLeagueFederation,#transferTeam,#createFederationCup,#createConfederationCup,#createInternationalCup,#changeCupFormat,#importFile').forEach(el=>{const host=el.matches('input')?el.closest('label'):el;if(host)host.classList.toggle('admin-only',!admin)});document.querySelectorAll('[data-action]').forEach(el=>{if(adminActions.has(el.dataset.action)||el.dataset.action==='reset')el.classList.toggle('admin-only',!admin)});};
   function bindDynamic(){
     const lvl=document.getElementById('divisionLevel'),prev=document.getElementById('divisionPreview');if(lvl&&prev){const draw=()=>{const n=Math.max(1,Number(lvl.value)||1),p=M().divisionProfile(n);prev.textContent=`${M().divisionLabel(n)} · fuerza ficticia ${V().fmt(p.totalMin)}–${V().fmt(p.totalMax)}`};lvl.addEventListener('input',draw);draw()}
+    const tactics=document.getElementById('teamTactics');
+    if(tactics){
+      const preset=tactics.elements.preset,formation=tactics.elements.formation,playStyle=tactics.elements.playStyle;
+      const markCustom=()=>{if(preset&&preset.value!=='custom')preset.value='custom'};
+      formation?.addEventListener('change',markCustom);
+      playStyle?.addEventListener('change',markCustom);
+      preset?.addEventListener('change',()=>{
+        if(!preset.value||preset.value==='custom')return;
+        const spec=M().tacticPresets?.()[preset.value];
+        if(!spec)return;
+        if(formation)formation.value=spec.formation;
+        if(playStyle)playStyle.value=spec.playStyle;
+      });
+    }
     const f=document.getElementById('importFile');if(f)f.onchange=()=>{if(!canWrite()){notify('error','Solo el administrador puede importar la partida oficial.');render();return}const file=f.files[0];if(!file)return;const r=new FileReader();r.onload=async()=>{try{M().import(r.result);await M().flushSave();const res=await window.LigaLabCloud.replaceState(M().state);notify('ok',`JSON RESTAURADO Y PUBLICADO · ${M().state.teams.length} clubes · ${M().state.leagues.length} divisiones.`);render()}catch(e){notify('error','IMPORTACIÓN: '+(e?.message||e));render()}finally{f.value=''}};r.onerror=()=>{notify('error','No se pudo leer el archivo JSON.');render()};r.readAsText(file)}
   }
 
@@ -5042,7 +5056,15 @@ select[multiple]{min-height:180px}
     }else if(f.id==='teamTactics'){
       e.preventDefault();
       const teamId=Number(f.dataset.team);
-      const r=await attemptAsync(async()=>{const x=M().setTeamTactics(teamId,{formation:fd.get('formation'),playStyle:fd.get('playStyle'),preset:fd.get('preset')});await commitCriticalChange(`Táctica de ${x.team.name}`);return x},x=>`${x.team.name}: ${x.presetLabel||'Personalizado'} · ${x.formationLabel} · ${x.styleLabel}. Táctica guardada.`);
+      const requested={formation:String(fd.get('formation')||''),playStyle:String(fd.get('playStyle')||''),preset:String(fd.get('preset')||'custom')};
+      const r=await attemptAsync(async()=>{
+        const x=M().setTeamTactics(teamId,requested);
+        await M().flushSave();
+        await commitCriticalChange(`Táctica de ${x.team.name}`);
+        const check=M().teamTactics(teamId);
+        if(check.formation!==x.formation||check.playStyle!==x.playStyle)throw new Error('La táctica no quedó persistida correctamente. Intenta guardarla otra vez.');
+        return x;
+      },x=>`${x.team.name}: ${x.presetLabel||'Personalizado'} · ${x.formationLabel} · ${x.styleLabel}. Táctica guardada y confirmada.`);
       render()
     }else if(f.id==='teamLogo'){
       e.preventDefault();const file=fd.get('logo');await attemptAsync(async()=>{const logo=await readAndResizeImage(file);return M().setTeamLogo(Number(f.dataset.team),logo)},()=> 'Escudo actualizado.');render()
