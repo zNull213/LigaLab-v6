@@ -4085,8 +4085,8 @@ select[multiple]{min-height:180px}
         const xgBase={long:.050,cross:.105,box:.145,through:.235,cutback:.190};
         for(let min=1;min<=maxMinute;min++){
           const hs=this.v10TacticalState(homeId,hg-ag,min),as=this.v10TacticalState(awayId,ag-hg,min),late=C((min-58)/32,0,1);
-          fatigue.H=C(fatigue.H+(.00082+.00092*hs.press+.00038*hs.tempo+(hRed*.00020))*(homeRedStar?.88:1),0,.34);
-          fatigue.A=C(fatigue.A+(.00082+.00092*as.press+.00038*as.tempo+(aRed*.00020))*(awayRedStar?.88:1),0,.34);
+          fatigue.H=C(fatigue.H+(.00082+.00092*hs.press+.00038*hs.tempo+(hRed*.00020))*(homeRedStar?.78:1),0,.34);
+          fatigue.A=C(fatigue.A+(.00082+.00092*as.press+.00038*as.tempo+(aRed*.00020))*(awayRedStar?.78:1),0,.34);
           momentum.H*=.965;momentum.A*=.965;
           const hMid=quality(HL,['DM','CM','AM','LM','RM'],fatigue.H),aMid=quality(AL,['DM','CM','AM','LM','RM'],fatigue.A),
                 hControl=hMid*(.80+.20*hs.tempo),aControl=aMid*(.80+.20*as.tempo),
@@ -4094,7 +4094,7 @@ select[multiple]{min-height:180px}
                 redControl=(aRed-hRed)*.045,
                 scoreControl=(hg<ag?.012*late:hg>ag?-.008*late:0),
                 redStarControl=(homeRedStar?1:0)-(awayRedStar?1:0),
-                pH=C(.515+(hControl-aControl)*.31+matchupControl*.46+strengthEdge*.025+redControl+scoreControl+redStarControl*.032+momentum.H*.10-momentum.A*.10+(Math.random()-.5)*.038,.32,.69);
+                pH=C(.515+(hControl-aControl)*.31+matchupControl*.46+strengthEdge*.025+redControl+scoreControl+redStarControl*.050+momentum.H*.10-momentum.A*.10+(Math.random()-.5)*.038,.32,.69);
           let side=Math.random()<pH?'H':'A';if(side==='H')possH++;else possA++;
           const oside=side==='H'?'A':'H',ts=side==='H'?hs:as,os=side==='H'?as:hs,
                 f=fatigue[side],of=fatigue[oside],ownReds=side==='H'?hRed:aRed,oppReds=side==='H'?aRed:hRed,
@@ -4110,7 +4110,7 @@ select[multiple]{min-height:180px}
           const passN=4+Math.floor(R(0,6)*(1-C(ts.tempo,.2,.95)*.18));d.passes+=passN;let complete=0;
           for(let j=0;j<passN;j++){
             const pressurePenalty=os.press*.105+of*.05-ownReds*.020+oppReds*.014,
-                  pc=C(.755+(build-def)*.155-pressurePenalty-f*.12+momentum[side]*.025+(redStar?.022:0)-(oppRedStar?.010:0),.56,.95);
+                  pc=C(.755+(build-def)*.155-pressurePenalty-f*.12+momentum[side]*.025+(redStar?.040:0)-(oppRedStar?.018:0),.56,.95);
             if(Math.random()<pc)complete++;else d.turnovers++;
           }
           d.completedPasses+=complete;const passQuality=complete/Math.max(1,passN);
@@ -4120,13 +4120,13 @@ select[multiple]{min-height:180px}
           /* 2) PROGRESIÓN AL ÚLTIMO TERCIO */
           const trailingRisk=scoreGap<0?(.018+.028*late*Math.min(2,-scoreGap)):0,
                 leadingBrake=scoreGap>=2?(.015+.012*late*Math.min(2,scoreGap-1)):0,
-                progressP=C(.49+(control-def)*.20+(passQuality-.70)*.22+ts.risk*.055+matchup.creation*.70+sideStrength*.010+momentum[side]*.16+trailingRisk-leadingBrake+(redStar?.032:0)-(oppRedStar?.022:0),.22,.80);
+                progressP=C(.49+(control-def)*.20+(passQuality-.70)*.22+ts.risk*.055+matchup.creation*.70+sideStrength*.010+momentum[side]*.16+trailingRisk-leadingBrake+(redStar?.058:0)-(oppRedStar?.032:0),.22,.80);
           if(Math.random()>progressP){if(Math.random()<.44){od.recoveries++;d.turnovers++}continue}
           d.progressivePasses++;
 
           /* 3) ENTRADA EN ZONA DE PELIGRO */
           const transitionBonus=(d.turnovers>0&&Math.random()<.22)?C(Number(ts.tempo||.5)*.035,0,.035):0,
-                finalThirdP=C(.37+(atk-def)*.19+matchup.creation*.85+transitionBonus+ts.risk*.050+momentum[side]*.18-ownReds*.040+oppReds*.045+(redStar?.038:0)-(oppRedStar?.025:0),.16,.72);
+                finalThirdP=C(.37+(atk-def)*.19+matchup.creation*.85+transitionBonus+ts.risk*.050+momentum[side]*.18-ownReds*.040+oppReds*.045+(redStar?.070:0)-(oppRedStar?.035:0),.16,.72);
           if(Math.random()>finalThirdP){if(Math.random()<.17)d.corners++;continue}
           d.dangerous++;if(Math.random()<.62)d.touchesBox++;
 
@@ -4147,16 +4147,16 @@ select[multiple]{min-height:180px}
 
           /* 5) REMATE */
           const shooter=pickShooter(ln,type),fin=this.v10EffectiveRating(shooter,f),
-                pressure=C(def*.36+os.press*.10+ownReds*.018-oppReds*.014,.06,.66),
+                pressure=C(def*.36+os.press*.10+ownReds*.018-oppReds*.014+(oppRedStar?.018:0),.06,.68),
                 qualityBoost=(passQuality-.70)*.11+matchup.finishing*.55+momentum[side]*.10,
                 bigChance=(type==='through'||type==='cutback')&&min-lastBigChance>2&&Math.random()<C(.20+Math.max(0,qualityBoost)*1.1,.12,.37);
           if(bigChance)lastBigChance=min;
-          let baseXg=xgBase[type]+(atk-def)*.070+qualityBoost+sideStrength*.004-pressure*.025+(bigChance?.105:0);
+          let baseXg=xgBase[type]+(atk-def)*.070+qualityBoost+sideStrength*.004-pressure*.025+(bigChance?.105:0)+(redStar?.018:0)-(oppRedStar?.006:0);
           if(type==='long')baseXg*=C(.90+fin*.10,.88,1.06);
           baseXg=C(baseXg,.012,bigChance?.48:.32);d.shots++;if(baseXg>.13)d.dangerous++;
 
           /* La media individual del rematador y el arquero ajustan el xG, no lo reemplazan. */
-          const conversion=C(baseXg*(.94+(fin-.55)*.34-(gk-.55)*.20)*(1-f*.18)*(1+(redStar?.105:0)-(oppRedStar?.045:0)),.006,.50),goal=Math.random()<conversion,
+          const conversion=C(baseXg*(.94+(fin-.55)*.34-(gk-.55)*.20)*(1-f*.18)*(1+(redStar?.180:0)-(oppRedStar?.060:0)),.006,.50),goal=Math.random()<conversion,
                 onTarget=goal||Math.random()<C(.31+(fin-.50)*.22+(baseXg-.10)*.40-pressure*.06,.20,.72);
           if(onTarget)d.onTarget++;if(side==='H')hx+=baseXg;else ax+=baseXg;
           if(goal){
