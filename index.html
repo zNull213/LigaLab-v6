@@ -1818,10 +1818,10 @@ select[multiple]{min-height:180px}
       const defaultFed=x.federations[0]?.id||null;
       for(const l of x.leagues){
         if(!l.federationId)l.federationId=defaultFed;
-        l.maxTeams=Math.max(2,Math.min(40,Number(l.maxTeams)||16));
+        l.maxTeams=Math.max(2,Math.min(100,Number(l.maxTeams)||16));
         l.promotions=Math.max(0,Math.min(10,Number(l.promotions ?? 2)));
         l.relegations=Math.max(0,Math.min(10,Number(l.relegations ?? 2)));
-        l.formatProfile=['double_round_robin','single_round_robin','uruguay_three_stage'].includes(l.formatProfile)?l.formatProfile:'double_round_robin';
+        l.formatProfile=['double_round_robin','single_round_robin','uruguay_three_stage','argentina_2026'].includes(l.formatProfile)?l.formatProfile:'double_round_robin';
       }
       for(const t of x.teams){
         const l=x.leagues.find(v=>Number(v.id)===Number(t.leagueId));
@@ -1911,7 +1911,8 @@ select[multiple]{min-height:180px}
       return ({
         double_round_robin:'Liga · ida y vuelta',
         single_round_robin:'Liga · una rueda',
-        uruguay_three_stage:'Apertura + Intermedio + Clausura'
+        uruguay_three_stage:'Uruguay 2026 · Apertura + Intermedio + Clausura + Anual + Promedios',
+        argentina_2026:'Sistema Argentino 2026 · Apertura + Clausura · Zonas + Playoffs + Tabla General'
       })[format]||'Liga · ida y vuelta';
     };
 
@@ -1958,10 +1959,10 @@ select[multiple]{min-height:180px}
       if(this.state.leagues.some(l=>Number(l.level)===level&&Number(l.federationId)===Number(f.id)))throw new Error(`Ya existe el nivel ${divisionLabel(level)} en ${f.name}.`);
       const l={
         id:this.id('league'),name,level,tier:`División ${divisionLabel(level)}`,currentSeason:1,federationId:f.id,
-        maxTeams:Math.max(2,Math.min(40,Number(opts.maxTeams)||16)),
+        maxTeams:Math.max(2,Math.min(100,Number(opts.maxTeams)||16)),
         promotions:Math.max(0,Math.min(10,Number(opts.promotions ?? 2))),
         relegations:Math.max(0,Math.min(10,Number(opts.relegations ?? 2))),
-        formatProfile:['double_round_robin','single_round_robin','uruguay_three_stage'].includes(opts.formatProfile)?opts.formatProfile:'double_round_robin'
+        formatProfile:['double_round_robin','single_round_robin','uruguay_three_stage','argentina_2026'].includes(opts.formatProfile)?opts.formatProfile:'double_round_robin'
       };
       this.state.leagues.push(l);this.save();return l;
     };
@@ -1994,13 +1995,13 @@ select[multiple]{min-height:180px}
       const l=this.league(leagueId);if(!l)throw new Error('División no encontrada.');
       if(this.currentLeagueComp(l.id)?.status==='active')throw new Error('No cambies las reglas mientras la temporada de esta división está activa.');
       if(maxTeams!=null){
-        const n=Math.max(2,Math.min(40,Number(maxTeams)||16));
+        const n=Math.max(2,Math.min(100,Number(maxTeams)||16));
         if(this.teams(l.id).length>n)throw new Error(`La división tiene ${this.teams(l.id).length} clubes. No puedes bajar el máximo a ${n} todavía.`);
         l.maxTeams=n;
       }
       if(promotions!=null)l.promotions=Math.max(0,Math.min(10,Number(promotions)||0));
       if(relegations!=null)l.relegations=Math.max(0,Math.min(10,Number(relegations)||0));
-      if(formatProfile&&['double_round_robin','single_round_robin','uruguay_three_stage'].includes(formatProfile))l.formatProfile=formatProfile;
+      if(formatProfile&&['double_round_robin','single_round_robin','uruguay_three_stage','argentina_2026'].includes(formatProfile))l.formatProfile=formatProfile;
       this.save();return l;
     };
     P.assignLeagueFederation=function(leagueId,federationId){
@@ -4019,6 +4020,365 @@ select[multiple]{min-height:180px}
         if(result?.simulationProfile){result.engineVersion=10;result.simulationProfile.engineVersion=10;result.simulationProfile.eventDriven=true;result.simulationProfile.events=result.simulationProfile.events||result.narration;result.simulationProfile.injuries=injuries.map(z=>({playerId:z.player?.id,penalty:z.penalty,matches:z.matches}));result.simulationProfile.formationMatchup=result.simulationProfile.formationMatchup||result.formationMatchup||null;result.simulationProfile.v10='zonal-sequence-engine-v103'}
         return result
       };
+
+
+      /* V10.4.1 · SISTEMA URUGUAYO MULTIDIVISIÓN
+         Apertura + Intermedio por posiciones del Apertura + Final del Intermedio +
+         Clausura + Tabla Anual + definición del campeonato + promedios.
+         Funciona con cualquier cantidad PAR de clubes (mínimo 8) y en cualquier nivel.
+         En categorías de ascenso: si hay 3 plazas, 2 son directas y la 3.ª se define
+         mediante playoff 3.º–6.º y 4.º–5.º, con semifinales y final a ida/vuelta. */
+      const _uruBaseCreateSeason=P.createSeason,
+            _uruBaseStandings=P.standings,
+            _uruBasePhaseWinners=P.phaseWinners,
+            _uruBasePlayMatch=P.playMatch,
+            _uruBaseCloseSeason=P.closeSeason,
+            _uruBaseTryMovements=P.tryMovements;
+
+      P.uruguayStructure=function(compOrCount){
+        const n=typeof compOrCount==='number'?Number(compOrCount):Number(compOrCount?.teamIds?.length||0);
+        if(!Number.isFinite(n)||n<8||n%2!==0)return null;
+        const groupSize=n/2,aperturaRounds=n-1,intermedioRounds=groupSize%2?groupSize:groupSize-1,
+              aperturaMatches=n*(n-1)/2,intermedioMatches=groupSize*(groupSize-1),
+              intermedioFinalMatchday=aperturaRounds+intermedioRounds+1,
+              clausuraOffset=intermedioFinalMatchday,clausuraLastMatchday=clausuraOffset+aperturaRounds;
+        return {n,groupSize,aperturaRounds,intermedioRounds,aperturaMatches,intermedioMatches,intermedioFinalMatchday,clausuraOffset,clausuraLastMatchday,
+          championshipSemiMatchday:clausuraLastMatchday+1,championshipFinalMatchday:clausuraLastMatchday+2,
+          promotionSemiStartMatchday:clausuraLastMatchday+3,promotionFinalStartMatchday:clausuraLastMatchday+5};
+      };
+      P.uruguayAggregate=function(c,filterFn){
+        const tab={};
+        for(const id of c.teamIds||[]){const t=this.team(id);tab[id]={teamId:id,name:t?.name||'?',strength:this.teamStrength(id),pj:0,g:0,e:0,p:0,gf:0,gc:0,dg:0,pts:0}}
+        for(const m of this.matches(c.id).filter(x=>x.stage==='league'&&x.played&&filterFn(x))){
+          const h=tab[m.homeId],a=tab[m.awayId];if(!h||!a)continue;
+          h.pj++;a.pj++;h.gf+=Number(m.homeScore)||0;h.gc+=Number(m.awayScore)||0;a.gf+=Number(m.awayScore)||0;a.gc+=Number(m.homeScore)||0;
+          if(m.homeScore>m.awayScore){h.g++;a.p++;h.pts+=3}else if(m.homeScore<m.awayScore){a.g++;h.p++;a.pts+=3}else{h.e++;a.e++;h.pts++;a.pts++}
+        }
+        const arr=Object.values(tab);for(const x of arr)x.dg=x.gf-x.gc;
+        arr.sort((a,b)=>b.pts-a.pts||b.dg-a.dg||b.gf-a.gf||Math.round(b.strength*100)-Math.round(a.strength*100)||a.name.localeCompare(b.name,'es'));
+        arr.forEach((x,i)=>x.pos=i+1);return arr;
+      };
+      P.uruguayAnnualStandings=function(compId){
+        const c=this.competition(compId);if(!c||c.type!=='league')return[];
+        return this.uruguayAggregate(c,m=>['Apertura','Intermedio','Clausura'].includes(m.phase));
+      };
+      P.standings=function(compId,phase=null,groupId=null){
+        const c=this.competition(compId);
+        if(c?.type==='league'&&c.format==='uruguay_three_stage'&&!phase)return this.uruguayAnnualStandings(compId);
+        return _uruBaseStandings.call(this,compId,phase,groupId);
+      };
+      P.uruguayRelegationTable=function(leagueId,season=null){
+        const l=this.league(leagueId);if(!l)return[];
+        const currentSeason=Number(season||l.currentSeason),c=this.state.competitions.find(x=>x.type==='league'&&Number(x.leagueId)===Number(l.id)&&Number(x.season)===currentSeason),
+              current=c?this.uruguayAnnualStandings(c.id):[],prev=this.state.seasonRecords.find(r=>Number(r.leagueId)===Number(l.id)&&Number(r.season)===currentSeason-1),prevRows=prev?.annualTable||prev?.table||[],prevMap=new Map(prevRows.map(x=>[Number(x.teamId),x]));
+        const rows=current.map(x=>{const p=prevMap.get(Number(x.teamId)),prevPts=p?Number(p.points??p.pts)||0:0,prevPj=p?Number(p.pj)||0:0,totalPts=prevPts+x.pts,totalPj=prevPj+x.pj,avg=totalPj?totalPts/totalPj:0;return {...x,previousPoints:prevPts,previousPlayed:prevPj,totalPoints:totalPts,totalPlayed:totalPj,average:avg,promoted:!p}});
+        rows.sort((a,b)=>b.average-a.average||b.totalPoints-a.totalPoints||b.dg-a.dg||b.gf-a.gf||a.name.localeCompare(b.name,'es'));rows.forEach((x,i)=>x.relegationPos=i+1);return rows;
+      };
+      P.uruguayIntermedioGroups=function(aperturaTable){
+        const rows=(aperturaTable||[]).slice().sort((a,b)=>Number(a.pos)-Number(b.pos)),n=rows.length;
+        if(n<8||n%2!==0)throw new Error('El formato uruguayo necesita una cantidad par de clubes (mínimo 8).');
+        const A=[],B=[];
+        for(const x of rows){const p=Number(x.pos),mod=((p-1)%4)+1;(mod===1||mod===4?A:B).push(x.teamId)}
+        return {A,B};
+      };
+      P.uruguaySpecialWinner=function(m){return Number(m?.winnerId||m?.penaltyShootout?.winnerId)||null};
+      P._uruAddLeagueMatch=function(c,homeId,awayId,phase,matchday,extra={}){
+        this._pushLeagueMatch(c,{homeId,awayId},phase,extra.groupId??null,matchday);
+        const m=this.matches(c.id).slice(-1)[0];if(m)Object.assign(m,extra);return m;
+      };
+      P._uruCreatePromotionTie=function(c,betterId,worseId,tieId,startMatchday){
+        if(this.matches(c.id).some(m=>m.uruguayPromotionTieId===tieId))return;
+        this._uruAddLeagueMatch(c,worseId,betterId,'Ascenso · Playoff',startMatchday,{uruguayPromotionLeg:true,uruguayPromotionTieId:tieId,leg:1,betterSeedId:betterId});
+        this._uruAddLeagueMatch(c,betterId,worseId,'Ascenso · Playoff',startMatchday+1,{uruguayPromotionLeg:true,uruguayPromotionTieId:tieId,leg:2,betterSeedId:betterId});
+      };
+      P._uruPromotionTieWinner=function(c,tieId){
+        const ms=this.matches(c.id).filter(m=>m.uruguayPromotionTieId===tieId).sort((a,b)=>Number(a.leg)-Number(b.leg));
+        if(ms.length!==2||ms.some(m=>!m.played))return null;
+        let a=0,b=0;const A=Number(ms[0].homeId),B=Number(ms[0].awayId);
+        for(const m of ms){if(Number(m.homeId)===A){a+=Number(m.homeScore)||0;b+=Number(m.awayScore)||0}else{b+=Number(m.homeScore)||0;a+=Number(m.awayScore)||0}}
+        const better=Number(ms[0].betterSeedId)||A,winner=a>b?A:b>a?B:better;
+        for(const m of ms){m.uruguayTieResolved=true;m.uruguayTieWinnerId=winner;m.aggregate={homeTeamId:A,awayTeamId:B,homeGoals:a,awayGoals:b,winnerId:winner,tiebreak:a===b?'mejor_tabla_anual':'goles'}}
+        return winner;
+      };
+      P.ensureUruguayPromotionPlayoff=function(c){
+        const l=this.league(c?.leagueId);if(!c||!l||Number(l.level)<=1)return c;
+        const slots=Math.max(0,Math.min(Number(l.promotions)||0,(c.teamIds||[]).length));if(!slots){c.uruguay.promotionIds=[];return c}
+        const annual=this.uruguayAnnualStandings(c.id);if(!annual.length)return c;
+        if(slots!==3||annual.length<6){c.uruguay.promotionDirectIds=annual.slice(0,slots).map(x=>x.teamId);c.uruguay.promotionIds=[...c.uruguay.promotionDirectIds];return c}
+        const s=this.uruguayStructure(c);if(!s)return c;
+        c.uruguay.promotionDirectIds=annual.slice(0,2).map(x=>x.teamId);
+        const s1='uru-promo-sf1',s2='uru-promo-sf2';
+        this._uruCreatePromotionTie(c,annual[2].teamId,annual[5].teamId,s1,s.promotionSemiStartMatchday);
+        this._uruCreatePromotionTie(c,annual[3].teamId,annual[4].teamId,s2,s.promotionSemiStartMatchday);
+        const w1=this._uruPromotionTieWinner(c,s1),w2=this._uruPromotionTieWinner(c,s2);
+        if(w1&&w2){
+          const pos=new Map(annual.map(x=>[Number(x.teamId),Number(x.pos)])),better=(pos.get(Number(w1))||999)<(pos.get(Number(w2))||999)?w1:w2,worse=Number(better)===Number(w1)?w2:w1,fin='uru-promo-final';
+          this._uruCreatePromotionTie(c,better,worse,fin,s.promotionFinalStartMatchday);
+          const wf=this._uruPromotionTieWinner(c,fin);if(wf){c.uruguay.promotionPlayoffWinnerId=wf;c.uruguay.promotionIds=[...c.uruguay.promotionDirectIds,wf]}
+        }
+        return c;
+      };
+      P.ensureUruguayProgress=function(compOrId){
+        const c=typeof compOrId==='object'?compOrId:this.competition(compOrId);if(!c||c.type!=='league'||c.format!=='uruguay_three_stage')return c;
+        c.uruguay=c.uruguay||{rulesYear:2026};const s=this.uruguayStructure(c);if(!s)return c;c.uruguay.structure=s;
+        const ap=this.matches(c.id).filter(m=>m.phase==='Apertura'),apDone=ap.length===s.aperturaMatches&&ap.every(m=>m.played);
+        if(apDone&&!this.matches(c.id).some(m=>m.phase==='Intermedio')){
+          const apt=_uruBaseStandings.call(this,c.id,'Apertura'),groups=this.uruguayIntermedioGroups(apt);c.uruguay.intermedioGroups=groups;
+          for(const [gid,ids] of Object.entries(groups))for(const f of this.roundRobin(ids,false))this._pushLeagueMatch(c,f,'Intermedio',gid,s.aperturaRounds+f.matchday);
+        }
+        const ims=this.matches(c.id).filter(m=>m.phase==='Intermedio');
+        if(ims.length===s.intermedioMatches&&ims.every(m=>m.played)&&!this.matches(c.id).some(m=>m.phase==='Intermedio Final')){
+          const a=_uruBaseStandings.call(this,c.id,'Intermedio','A')[0],b=_uruBaseStandings.call(this,c.id,'Intermedio','B')[0];
+          if(a&&b){const fm=this._uruAddLeagueMatch(c,a.teamId,b.teamId,'Intermedio Final',s.intermedioFinalMatchday,{uruguayKnockout:true,neutral:true});c.uruguay.intermedioFinalId=fm?.id||null}
+        }
+        const ifinal=this.matches(c.id).find(m=>m.phase==='Intermedio Final');if(ifinal?.played)c.uruguay.intermedioChampionId=this.uruguaySpecialWinner(ifinal);
+        const cl=this.matches(c.id).filter(m=>m.phase==='Clausura'),clDone=cl.length===s.aperturaMatches&&cl.every(m=>m.played);
+        if(clDone&&(!ifinal||ifinal.played)){
+          const apW=_uruBaseStandings.call(this,c.id,'Apertura')[0]?.teamId||null,clW=_uruBaseStandings.call(this,c.id,'Clausura')[0]?.teamId||null,annual=this.uruguayAnnualStandings(c.id),annualW=annual[0]?.teamId||null;
+          c.uruguay.aperturaChampionId=apW;c.uruguay.clausuraChampionId=clW;c.uruguay.annualChampionId=annualW;
+          if(apW&&clW&&Number(apW)===Number(clW)){
+            c.uruguay.championId=apW;c.uruguay.runnerUpId=annual.find(x=>Number(x.teamId)!==Number(apW))?.teamId||null;
+          }else if(apW&&clW&&!this.matches(c.id).some(m=>m.phase==='Campeonato Uruguayo · Semifinal')){
+            const sm=this._uruAddLeagueMatch(c,apW,clW,'Campeonato Uruguayo · Semifinal',s.championshipSemiMatchday,{uruguayKnockout:true,neutral:true});c.uruguay.semifinalId=sm?.id||null;
+          }
+          const semi=this.matches(c.id).find(m=>m.phase==='Campeonato Uruguayo · Semifinal');
+          if(semi?.played&&!c.uruguay.championId){
+            const sw=this.uruguaySpecialWinner(semi);c.uruguay.semifinalWinnerId=sw;
+            if(Number(sw)===Number(annualW)){c.uruguay.championId=sw;c.uruguay.runnerUpId=Number(sw)===Number(apW)?clW:apW}
+            else if(sw&&annualW&&!this.matches(c.id).some(m=>m.phase==='Campeonato Uruguayo · Final')){
+              const fm=this._uruAddLeagueMatch(c,annualW,sw,'Campeonato Uruguayo · Final',s.championshipFinalMatchday,{uruguayKnockout:true,neutral:true});c.uruguay.finalId=fm?.id||null;
+            }
+          }
+          const fin=this.matches(c.id).find(m=>m.phase==='Campeonato Uruguayo · Final');if(fin?.played){c.uruguay.championId=this.uruguaySpecialWinner(fin);c.uruguay.runnerUpId=Number(c.uruguay.championId)===Number(fin.homeId)?fin.awayId:fin.homeId}
+          this.ensureUruguayPromotionPlayoff(c);
+        }
+        if(c.uruguay.championId)c.championId=c.uruguay.championId;return c;
+      };
+      P.createSeason=function(leagueId){
+        const l=this.league(leagueId);if(!l||l.formatProfile!=='uruguay_three_stage')return _uruBaseCreateSeason.call(this,leagueId);
+        const ts=this.teams(leagueId),n=ts.length;if(n<8||n%2!==0)throw new Error('El formato uruguayo necesita una cantidad par de clubes, desde 8 en adelante. Ejemplos válidos: 16 o 18.');
+        if(n>this.maxTeams(l.id))throw new Error(`${l.name} tiene ${n} clubes y su máximo configurado es ${this.maxTeams(l.id)}.`);
+        if(this.currentLeagueComp(l.id))throw new Error('Esta temporada ya tiene calendario.');
+        if(Number(l.level)===1)l.relegations=3;
+        const fed=this.federation(l.federationId),conf=this.confederation(fed?.confederationId),c={id:this.id('comp'),name:`${l.name} · Temporada ${l.currentSeason}`,type:'league',leagueId:l.id,season:l.currentSeason,status:'active',currentRound:1,championId:null,teamIds:ts.map(t=>t.id),byes:[],format:'uruguay_three_stage',stage:'league',federationId:fed?.id||null,confederationId:conf?.id||null,phaseNames:['Apertura','Intermedio','Clausura'],uruguay:{rulesYear:2026,multiDivision:true}};
+        const s=this.uruguayStructure(c);c.uruguay.structure=s;this.state.competitions.push(c);const apertura=this.roundRobin(c.teamIds,false);
+        for(const f of apertura)this._pushLeagueMatch(c,f,'Apertura',null,f.matchday);
+        for(const f of apertura)this._pushLeagueMatch(c,{homeId:f.awayId,awayId:f.homeId},'Clausura',null,s.clausuraOffset+f.matchday);
+        this.save();return c;
+      };
+      P.phaseWinners=function(compId){
+        const c=this.competition(compId);if(!c||c.format!=='uruguay_three_stage')return _uruBasePhaseWinners.call(this,compId);
+        const out={Apertura:_uruBaseStandings.call(this,c.id,'Apertura')[0]?.teamId||null,Clausura:_uruBaseStandings.call(this,c.id,'Clausura')[0]?.teamId||null};
+        const a=_uruBaseStandings.call(this,c.id,'Intermedio','A')[0],b=_uruBaseStandings.call(this,c.id,'Intermedio','B')[0],fm=this.matches(c.id).find(m=>m.phase==='Intermedio Final');out.Intermedio={groupA:a?.teamId||null,groupB:b?.teamId||null,championId:fm?.played?this.uruguaySpecialWinner(fm):null};return out;
+      };
+      P.playMatch=function(m,c){
+        const r=_uruBasePlayMatch.call(this,m,c);
+        if(m?.uruguayKnockout&&m.played&&Number(m.homeScore)===Number(m.awayScore)&&!m.winnerId){const sh=this.simulateShootout(m.homeId,m.awayId,this.teamProfile(m.homeId),this.teamProfile(m.awayId));m.penaltyShootout=sh;m.decision='penalties';m.winnerId=sh.winnerId;m.narration=m.narration||[];m.narration.push({minute:121,label:'PEN',type:'penalties',text:`Definición por penales: ${this.team(sh.winnerId)?.name||'el ganador'} avanza.`})}
+        if(c?.format==='uruguay_three_stage')this.ensureUruguayProgress(c);return r;
+      };
+      P.closeSeason=function(leagueId){
+        const l=this.league(leagueId);if(!l||l.formatProfile!=='uruguay_three_stage')return _uruBaseCloseSeason.call(this,leagueId);
+        const c=this.state.competitions.find(x=>x.type==='league'&&Number(x.leagueId)===Number(l.id)&&Number(x.season)===Number(l.currentSeason));if(!c)throw new Error('No hay temporada activa.');this.ensureUruguayProgress(c);
+        if(this.matches(c.id).some(m=>m.stage==='league'&&!m.played))throw new Error('Primero deben jugarse todas las fases pendientes, incluida la definición y los playoffs de ascenso cuando correspondan.');
+        if(!c.uruguay?.championId)throw new Error('Todavía no quedó definido el campeón de la división.');
+        if(Number(l.level)>1&&(Number(l.promotions)||0)>0&&!Array.isArray(c.uruguay?.promotionIds))this.ensureUruguayPromotionPlayoff(c);
+        const season=l.currentSeason,annual=this.uruguayAnnualStandings(c.id),releg=this.uruguayRelegationTable(l.id,season),phases=this.phaseWinners(c.id),champ=Number(c.uruguay.championId),runner=Number(c.uruguay.runnerUpId)||annual.find(x=>Number(x.teamId)!==champ)?.teamId||null,
+              promotionIds=Array.isArray(c.uruguay?.promotionIds)?c.uruguay.promotionIds.slice():annual.slice(0,Math.max(0,Number(l.promotions)||0)).map(x=>x.teamId);
+        if(!this.state.seasonRecords.some(r=>Number(r.leagueId)===Number(l.id)&&Number(r.season)===Number(season)))this.state.seasonRecords.push({leagueId:l.id,federationId:l.federationId,season,championId:champ,runnerUpId:runner,formatProfile:l.formatProfile,phaseWinners:phases,annualChampionId:annual[0]?.teamId||null,intermedioChampionId:c.uruguay.intermedioChampionId||null,promotionIds,promotionDirectIds:(c.uruguay.promotionDirectIds||[]).slice(),promotionPlayoffWinnerId:c.uruguay.promotionPlayoffWinnerId||null,annualTable:annual.map(x=>({teamId:x.teamId,position:x.pos,pj:x.pj,g:x.g,e:x.e,p:x.p,gf:x.gf,gc:x.gc,dg:x.dg,points:x.pts,strength:x.strength})),relegationTable:releg.map(x=>({teamId:x.teamId,position:x.relegationPos,pj:x.totalPlayed,points:x.totalPoints,average:x.average,previousPoints:x.previousPoints,previousPlayed:x.previousPlayed,currentPoints:x.pts,currentPlayed:x.pj,promoted:x.promoted})),table:annual.map(x=>({teamId:x.teamId,position:x.pos,pj:x.pj,g:x.g,e:x.e,p:x.p,gf:x.gf,gc:x.gc,dg:x.dg,points:x.pts,strength:x.strength}))});
+        for(const x of annual){const t=this.team(x.teamId),strength=this.teamStrength(t.id);for(const p of this.players(t.id)){p.lastDelta=0;p.lastSeasonChange=null}this.state.history.push({leagueId:l.id,federationId:l.federationId,season,teamId:t.id,position:x.pos,points:x.pts,oldRating:strength,newRating:strength,delta:0})}
+        c.status='completed';c.championId=champ;c.completedAt=c.completedAt||new Date().toISOString();if(Number(l.level)===1)this.ensureLeagueCup(season,l.id,annual);l.currentSeason++;this.tryMovements(season);this.save();return annual;
+      };
+      P.tryMovements=function(season){
+        for(const up of this.leagues()){
+          const down=this.leagueByLevel(Number(up.level)+1,up.federationId);if(!down)continue;const key=`${season}:${up.id}:${down.id}`;if(this.state.movementKeys.includes(key))continue;
+          const cu=this.state.competitions.find(c=>c.type==='league'&&Number(c.leagueId)===Number(up.id)&&Number(c.season)===Number(season)),cd=this.state.competitions.find(c=>c.type==='league'&&Number(c.leagueId)===Number(down.id)&&Number(c.season)===Number(season));if(!cu||!cd||cu.status!=='completed'||cd.status!=='completed')continue;
+          const nextSeason=Number(season)+1;if(this.state.competitions.some(c=>c.type==='league'&&Number(c.season)===nextSeason&&(Number(c.leagueId)===Number(up.id)||Number(c.leagueId)===Number(down.id))))continue;
+          const ur=this.state.seasonRecords.find(r=>Number(r.leagueId)===Number(up.id)&&Number(r.season)===Number(season)),dr=this.state.seasonRecords.find(r=>Number(r.leagueId)===Number(down.id)&&Number(r.season)===Number(season)),tu=ur?.table||[],td=dr?.table||[];
+          const wantedRelegations=Math.max(0,Number(up.relegations)||0),promotionPool=(dr?.promotionIds?.length?dr.promotionIds:td.slice(0,Math.max(0,Number(down.promotions)||0)).map(x=>x.teamId)).filter(Boolean),
+                count=Math.min(wantedRelegations,promotionPool.length,Math.floor(tu.length/2),Math.floor(td.length/2));if(count<1)continue;
+          const relegated=up.formatProfile==='uruguay_three_stage'?(ur?.relegationTable||[]).slice(-count).map(x=>x.teamId):tu.slice(-count).map(x=>x.teamId),promoted=promotionPool.slice(0,count);
+          if(this.teams(up.id).length-relegated.length+promoted.length>this.maxTeams(up.id)||this.teams(down.id).length-promoted.length+relegated.length>this.maxTeams(down.id))continue;
+          for(const id of relegated){const t=this.team(id);if(t){t.leagueId=down.id;t.federationId=down.federationId}}for(const id of promoted){const t=this.team(id);if(t){t.leagueId=up.id;t.federationId=up.federationId}}
+          this.state.movements.push({season,federationId:up.federationId,upperLeagueId:up.id,lowerLeagueId:down.id,promotedIds:promoted,relegatedIds:relegated,count,method:`${up.formatProfile==='uruguay_three_stage'?'promedio_uruguayo':'tabla'} / ${down.formatProfile==='uruguay_three_stage'?'ascenso_anual_playoff':'tabla'}`});this.state.movementKeys.push(key);
+        }
+      };
+
+
+      /* V10.5.1 · SISTEMA ARGENTINO 2026
+         Formato LPF vigente al 26/06/2026: Apertura + Clausura, dos zonas,
+         dos interzonales por torneo, Top 8 por zona a playoffs, Tabla General,
+         Campeón de Liga, Trofeo de Campeones y dos descensos (promedio 3 temporadas
+         + último de la General, excluyendo al ya descendido por promedio).
+         Con 30 clubes reproduce el esquema oficial 2x15 / 16 partidos por fase.
+         V10.5.1: el mismo sistema puede usarse en cualquier división y con cualquier
+         cantidad de clubes >=2. Las zonas, interzonales y el cuadro final se adaptan
+         automáticamente; con cantidades impares una zona tiene un club más. */
+      const _argBaseCreateSeason=P.createSeason,
+            _argBaseStandings=P.standings,
+            _argBasePhaseWinners=P.phaseWinners,
+            _argBasePlayMatch=P.playMatch,
+            _argBaseCloseSeason=P.closeSeason;
+
+      P.argentinaStructure=function(compOrCount){
+        const n=typeof compOrCount==='number'?Number(compOrCount):Number(compOrCount?.teamIds?.length||0);
+        if(!Number.isFinite(n)||n<2)return null;
+        const zoneA=Math.ceil(n/2),zoneB=Math.floor(n/2),rrDays=m=>m<=1?0:(m%2?m:m-1),zoneRoundDays=Math.max(rrDays(zoneA),rrDays(zoneB)),
+              interzonalRounds=2,regularRounds=zoneRoundDays+interzonalRounds,minZone=Math.max(1,Math.min(zoneA,zoneB));
+        let qualifiersPerZone=1;for(const q of [1,2,4,8])if(q<=minZone)qualifiersPerZone=q;
+        const bracketSize=qualifiersPerZone*2,knockoutRounds=Math.max(1,Math.round(Math.log2(bracketSize))),
+              aperturaRoundDays=Array.from({length:knockoutRounds},(_,i)=>regularRounds+i+1),aperturaFinal=aperturaRoundDays.at(-1),
+              clausuraOffset=aperturaFinal,clausuraRoundDays=Array.from({length:knockoutRounds},(_,i)=>clausuraOffset+regularRounds+i+1),clausuraFinal=clausuraRoundDays.at(-1),trofeoBase=clausuraFinal+1;
+        return {n,zoneSizeA:zoneA,zoneSizeB:zoneB,zoneRoundDays,interzonalRounds,regularRounds,qualifiersPerZone,bracketSize,knockoutRounds,aperturaRoundDays,clausuraOffset,clausuraRoundDays,aperturaFinal,clausuraFinal,trofeoBase};
+      };
+      P.argentinaBuildZones=function(ids){
+        const ordered=[...(ids||[])].sort((a,b)=>this.teamStrengthCents(b)-this.teamStrengthCents(a)||Number(a)-Number(b)),A=[],B=[];
+        ordered.forEach((id,i)=>{const mod=i%4;(mod===0||mod===3?A:B).push(id)});
+        /* Si la serpiente dejara una diferencia mayor a uno por una cantidad muy chica,
+           reequilibrar sin perder ningún club. */
+        while(A.length>B.length+1)B.push(A.pop());while(B.length>A.length+1)A.push(B.pop());
+        return {A,B,pairs:[]};
+      };
+      P._argAddMatch=function(c,homeId,awayId,{tournament,phase,groupId=null,matchday,regular=false,round=0,slot=0,neutral=false}={}){
+        if(homeId==null||awayId==null||Number(homeId)===Number(awayId))return null;
+        this._pushLeagueMatch(c,{homeId,awayId},phase,groupId,matchday);const m=this.matches(c.id).slice(-1)[0];
+        if(m)Object.assign(m,{argentinaTournament:tournament,argentinaRegular:!!regular,argentinaKnockout:!regular,argentinaRound:Number(round)||0,argentinaSlot:Number(slot)||0,neutral:!!neutral});return m;
+      };
+      P._argRegularTemplate=function(c,tournament='Apertura',offset=0,reverse=false){
+        const z=c.argentina?.zones;if(!z)return;const rrA=this.roundRobin(z.A,false),rrB=this.roundRobin(z.B,false),days=Math.max(0,...rrA.map(x=>x.matchday),...rrB.map(x=>x.matchday)),
+              add=(h,a,group,md)=>this._argAddMatch(c,reverse?a:h,reverse?h:a,{tournament,phase:tournament,groupId:group,matchday:offset+md,regular:true});
+        for(const f of rrA)add(f.homeId,f.awayId,'A',f.matchday);for(const f of rrB)add(f.homeId,f.awayId,'B',f.matchday);
+        /* Dos fechas interzonales adaptativas. Con total impar necesariamente habrá
+           un club libre por fecha; se rota el descanso para repartirlo. */
+        const big=z.A.length>=z.B.length?z.A:z.B,small=z.A.length>=z.B.length?z.B:z.A,bigIsA=z.A.length>=z.B.length;
+        for(let r=0;r<2;r++){
+          for(let i=0;i<small.length;i++){
+            const x=small[i],y=big[(i+r)%big.length];
+            if(bigIsA)add(y,x,'I',days+r+1);else add(x,y,'I',days+r+1);
+          }
+        }
+      };
+      P.argentinaAggregate=function(c,filterFn){
+        const tab={};for(const id of c.teamIds||[]){const t=this.team(id);tab[id]={teamId:id,name:t?.name||'?',strength:this.teamStrength(id),pj:0,g:0,e:0,p:0,gf:0,gc:0,dg:0,pts:0}}
+        for(const m of this.matches(c.id).filter(x=>x.stage==='league'&&x.played&&filterFn(x))){const h=tab[m.homeId],a=tab[m.awayId];if(!h||!a)continue;h.pj++;a.pj++;h.gf+=+m.homeScore||0;h.gc+=+m.awayScore||0;a.gf+=+m.awayScore||0;a.gc+=+m.homeScore||0;if(m.homeScore>m.awayScore){h.g++;a.p++;h.pts+=3}else if(m.homeScore<m.awayScore){a.g++;h.p++;a.pts+=3}else{h.e++;a.e++;h.pts++;a.pts++}}
+        const arr=Object.values(tab);for(const x of arr)x.dg=x.gf-x.gc;arr.sort((a,b)=>b.pts-a.pts||b.dg-a.dg||b.gf-a.gf||Math.round(b.strength*100)-Math.round(a.strength*100)||a.name.localeCompare(b.name,'es'));arr.forEach((x,i)=>x.pos=i+1);return arr;
+      };
+      P.argentinaZoneStandings=function(compId,tournament,zone){
+        const c=this.competition(compId);if(!c?.argentina)return[];const ids=new Set(c.argentina.zones?.[zone]||[]);
+        return this.argentinaAggregate(c,m=>m.argentinaRegular&&m.argentinaTournament===tournament&&(ids.has(Number(m.homeId))||ids.has(Number(m.awayId)))).filter(x=>ids.has(Number(x.teamId))).map((x,i)=>({...x,pos:i+1}));
+      };
+      P.argentinaTournamentStandings=function(compId,tournament){const c=this.competition(compId);return c?this.argentinaAggregate(c,m=>m.argentinaRegular&&m.argentinaTournament===tournament):[]};
+      P.argentinaAnnualStandings=function(compId){const c=this.competition(compId);return c?this.argentinaAggregate(c,m=>m.argentinaRegular&&['Apertura','Clausura'].includes(m.argentinaTournament)):[]};
+      P.standings=function(compId,phase=null,groupId=null){
+        const c=this.competition(compId);if(c?.format==='argentina_2026'){
+          if(!phase)return this.argentinaAnnualStandings(compId);
+          if((phase==='Apertura'||phase==='Clausura')&&(groupId==='A'||groupId==='B'))return this.argentinaZoneStandings(compId,phase,groupId);
+          if(phase==='Apertura'||phase==='Clausura')return this.argentinaTournamentStandings(compId,phase);
+        }
+        return _argBaseStandings.call(this,compId,phase,groupId);
+      };
+      P._argSeedData=function(c,tournament){
+        const out=new Map();for(const z of ['A','B'])for(const x of this.argentinaZoneStandings(c.id,tournament,z))out.set(Number(x.teamId),{zone:z,pos:x.pos,pts:x.pts,dg:x.dg,gf:x.gf});return out;
+      };
+      P._argBetterSeed=function(c,tournament,a,b){
+        const s=this._argSeedData(c,tournament),x=s.get(Number(a))||{pos:99,pts:0,dg:-999,gf:0},y=s.get(Number(b))||{pos:99,pts:0,dg:-999,gf:0};
+        if(x.pos!==y.pos)return x.pos<y.pos?a:b;if(x.pts!==y.pts)return x.pts>y.pts?a:b;if(x.dg!==y.dg)return x.dg>y.dg?a:b;if(x.gf!==y.gf)return x.gf>y.gf?a:b;return Number(a)<Number(b)?a:b;
+      };
+      P._argRoundDay=function(c,tournament,round){const s=c.argentina.structure,days=tournament==='Apertura'?s.aperturaRoundDays:s.clausuraRoundDays;return days?.[Number(round)-1]||((tournament==='Apertura'?0:s.clausuraOffset)+s.regularRounds+Number(round))};
+      P._argRoundLabel=function(c,round){
+        const total=Number(c.argentina?.structure?.knockoutRounds)||1,left=total-Number(round);
+        if(left===0)return'Final';if(left===1)return'Semifinal';if(left===2)return'Cuartos';if(left===3)return'Octavos';return`Ronda de ${2**(left+1)}`;
+      };
+      P._argCreatePair=function(c,tournament,a,b,round,slot,neutral=false){
+        if(a==null||b==null)return null;const home=neutral?a:this._argBetterSeed(c,tournament,a,b),away=Number(home)===Number(a)?b:a,label=this._argRoundLabel(c,round);
+        return this._argAddMatch(c,home,away,{tournament,phase:`${tournament} · ${label}`,matchday:this._argRoundDay(c,tournament,round),round,slot,neutral});
+      };
+      P._argCreateR16=function(c,tournament){
+        if(this.matches(c.id).some(m=>m.argentinaTournament===tournament&&m.argentinaRound===1))return;
+        const A=this.argentinaZoneStandings(c.id,tournament,'A'),B=this.argentinaZoneStandings(c.id,tournament,'B'),q=Number(c.argentina?.structure?.qualifiersPerZone)||1;
+        if(A.length<q||B.length<q)return;
+        for(let j=0;j<q;j++){
+          const i=Math.floor(j/2),opp=q-1-i,p=j%2===0?[A[i],B[opp]]:[B[i],A[opp]];
+          if(p[0]&&p[1])this._argCreatePair(c,tournament,p[0].teamId,p[1].teamId,1,j+1,q===1);
+        }
+      };
+      P._argRoundWinners=function(c,tournament,round){return this.matches(c.id).filter(m=>m.argentinaTournament===tournament&&m.argentinaRound===round).sort((a,b)=>a.argentinaSlot-b.argentinaSlot).map(m=>Number(m.winnerId)||null).filter(Boolean)};
+      P._argAdvanceTournament=function(c,tournament){
+        const regular=this.matches(c.id).filter(m=>m.argentinaRegular&&m.argentinaTournament===tournament);if(!regular.length||regular.some(m=>!m.played))return;
+        this._argCreateR16(c,tournament);const total=Number(c.argentina?.structure?.knockoutRounds)||1;
+        for(let round=1;round<total;round++){
+          const cur=this.matches(c.id).filter(m=>m.argentinaTournament===tournament&&m.argentinaRound===round);if(!cur.length||cur.some(m=>!m.played))return;
+          if(this.matches(c.id).some(m=>m.argentinaTournament===tournament&&m.argentinaRound===round+1))continue;
+          const w=this._argRoundWinners(c,tournament,round),next=round+1,neutral=next===total;
+          for(let i=0,slot=1;i<w.length/2;i++,slot++)this._argCreatePair(c,tournament,w[i],w[w.length-1-i],next,slot,neutral);
+        }
+        const fin=this.matches(c.id).find(m=>m.argentinaTournament===tournament&&m.argentinaRound===total);if(fin?.played){c.argentina[`${tournament.toLowerCase()}ChampionId`]=Number(fin.winnerId)||null;c.argentina[`${tournament.toLowerCase()}RunnerUpId`]=Number(fin.winnerId)===Number(fin.homeId)?fin.awayId:fin.homeId}
+      };
+      P._argCreateTrofeo=function(c){
+        const a=Number(c.argentina.aperturaChampionId)||null,cl=Number(c.argentina.clausuraChampionId)||null;if(!a||!cl)return;
+        const annual=this.argentinaAnnualStandings(c.id),rank=new Map(annual.map(x=>[Number(x.teamId),x.pos])),better=(x,y)=>(rank.get(Number(x))||999)<=(rank.get(Number(y))||999)?x:y;
+        let finalistA=a,finalistB=cl;
+        if(a===cl){const ar=Number(c.argentina.aperturaRunnerUpId)||null,cr=Number(c.argentina.clausuraRunnerUpId)||null;if(!ar||!cr)return;if(ar===cr)finalistB=ar;else{
+          let dec=this.matches(c.id).find(m=>m.argentinaTrofeoDecider);if(!dec){const h=better(ar,cr),aw=Number(h)===ar?cr:ar;dec=this._argAddMatch(c,h,aw,{tournament:'Trofeo',phase:'Trofeo de Campeones · Desempate subcampeones',matchday:c.argentina.structure.trofeoBase,round:5,slot:1,neutral:true});dec.argentinaTrofeoDecider=true;return}if(!dec.played)return;finalistB=Number(dec.winnerId)||null;
+        }}
+        if(!finalistB)return;let fin=this.matches(c.id).find(m=>m.argentinaTrofeoFinal);if(!fin){const h=better(finalistA,finalistB),aw=Number(h)===Number(finalistA)?finalistB:finalistA;fin=this._argAddMatch(c,h,aw,{tournament:'Trofeo',phase:'Trofeo de Campeones',matchday:c.argentina.structure.trofeoBase+(a===cl&&Number(c.argentina.aperturaRunnerUpId)!==Number(c.argentina.clausuraRunnerUpId)?1:0),round:6,slot:1,neutral:true});fin.argentinaTrofeoFinal=true;return}if(fin.played)c.argentina.trofeoChampionId=Number(fin.winnerId)||null;
+      };
+      P.ensureArgentinaProgress=function(compOrId){
+        const c=typeof compOrId==='object'?compOrId:this.competition(compOrId);if(!c||c.format!=='argentina_2026')return c;c.argentina=c.argentina||{};
+        this._argAdvanceTournament(c,'Apertura');this._argAdvanceTournament(c,'Clausura');
+        if(c.argentina.aperturaChampionId&&c.argentina.clausuraChampionId){c.argentina.annualChampionId=this.argentinaAnnualStandings(c.id)[0]?.teamId||null;this._argCreateTrofeo(c)}
+        return c;
+      };
+      P.argentinaRelegationTable=function(leagueId,season=null){
+        const l=this.league(leagueId);if(!l)return[];const currentSeason=Number(season||l.currentSeason),c=this.state.competitions.find(x=>x.type==='league'&&Number(x.leagueId)===Number(l.id)&&Number(x.season)===currentSeason),current=c?this.argentinaAnnualStandings(c.id):[],prevRecords=this.state.seasonRecords.filter(r=>Number(r.leagueId)===Number(l.id)&&Number(r.season)>=currentSeason-2&&Number(r.season)<currentSeason);
+        const rows=current.map(x=>{let totalPoints=x.pts,totalPlayed=x.pj,seasons=[currentSeason];for(const r of prevRecords){const p=(r.annualTable||r.table||[]).find(q=>Number(q.teamId)===Number(x.teamId));if(p){totalPoints+=Number(p.points??p.pts)||0;totalPlayed+=Number(p.pj)||0;seasons.push(Number(r.season))}}return {...x,totalPoints,totalPlayed,average:totalPlayed?totalPoints/totalPlayed:0,seasons:seasons.sort((a,b)=>a-b),promoted:seasons.length===1}});
+        rows.sort((a,b)=>b.average-a.average||b.totalPoints-a.totalPoints||b.dg-a.dg||b.gf-a.gf||a.name.localeCompare(b.name,'es'));rows.forEach((x,i)=>x.relegationPos=i+1);return rows;
+      };
+      P.argentinaRelegationIds=function(leagueId,season=null){
+        const l=this.league(leagueId),c=l&&this.state.competitions.find(x=>x.type==='league'&&Number(x.leagueId)===Number(l.id)&&Number(x.season)===Number(season||l.currentSeason));if(!l||!c)return[];
+        const wanted=Math.max(0,Math.min(Number(l.relegations)||0,(c.teamIds||[]).length-1));if(!wanted)return[];
+        const avg=this.argentinaRelegationTable(l.id,season),annual=this.argentinaAnnualStandings(c.id),out=[];
+        const worstAvg=avg.at(-1)?.teamId;if(worstAvg)out.push(worstAvg);
+        for(const x of [...annual].reverse()){if(out.length>=wanted)break;if(!out.includes(x.teamId))out.push(x.teamId)}
+        return out.slice(0,wanted);
+      };
+      P.createSeason=function(leagueId){
+        const l=this.league(leagueId);if(!l||l.formatProfile!=='argentina_2026')return _argBaseCreateSeason.call(this,leagueId);
+        const ts=this.teams(leagueId),n=ts.length;if(n<2)throw new Error('Sistema Argentino 2026: la división necesita al menos 2 clubes.');
+        if(n>this.maxTeams(l.id))throw new Error(`${l.name} tiene ${n} clubes y su máximo configurado es ${this.maxTeams(l.id)}.`);if(this.currentLeagueComp(l.id))throw new Error('Esta temporada ya tiene calendario.');
+        const fed=this.federation(l.federationId),conf=this.confederation(fed?.confederationId),c={id:this.id('comp'),name:`${l.name} · Temporada ${l.currentSeason}`,type:'league',leagueId:l.id,season:l.currentSeason,status:'active',currentRound:1,championId:null,teamIds:ts.map(t=>t.id),byes:[],format:'argentina_2026',stage:'league',federationId:fed?.id||null,confederationId:conf?.id||null,phaseNames:['Apertura','Clausura'],argentina:{rulesYear:2026,adaptive:true}};
+        c.argentina.zones=this.argentinaBuildZones(c.teamIds);c.argentina.structure=this.argentinaStructure(c);this.state.competitions.push(c);this._argRegularTemplate(c,'Apertura',0,false);this._argRegularTemplate(c,'Clausura',c.argentina.structure.clausuraOffset,true);this.save();return c;
+      };
+      P.phaseWinners=function(compId){const c=this.competition(compId);if(!c||c.format!=='argentina_2026')return _argBasePhaseWinners.call(this,compId);return {Apertura:c.argentina?.aperturaChampionId||null,Clausura:c.argentina?.clausuraChampionId||null,CampeonLiga:c.argentina?.annualChampionId||this.argentinaAnnualStandings(c.id)[0]?.teamId||null,TrofeoCampeones:c.argentina?.trofeoChampionId||null}};
+      P.playMatch=function(m,c){
+        const r=_argBasePlayMatch.call(this,m,c);
+        if(m?.argentinaKnockout&&m.played&&Number(m.homeScore)===Number(m.awayScore)&&!m.winnerId){
+          const ex=this.simulateScore(m.homeId,m.awayId,false,{regulationFraction:1/3}),eh=Number(ex.homeScore)||0,ea=Number(ex.awayScore)||0;m.extraHomeScore=eh;m.extraAwayScore=ea;m.homeScore+=eh;m.awayScore+=ea;m.decision='extra_time';m.narration=m.narration||[];m.narration.push({minute:120,label:'TE',type:'extra_time',text:`Tiempo suplementario: ${this.team(m.homeId)?.name} ${eh}-${ea} ${this.team(m.awayId)?.name}.`});
+          if(m.homeScore===m.awayScore){const sh=this.simulateShootout(m.homeId,m.awayId,this.teamProfile(m.homeId),this.teamProfile(m.awayId));m.penaltyShootout=sh;m.decision='penalties';m.winnerId=sh.winnerId;m.narration.push({minute:121,label:'PEN',type:'penalties',text:`Definición por penales: ${this.team(sh.winnerId)?.name||'el ganador'} avanza.`})}else m.winnerId=m.homeScore>m.awayScore?m.homeId:m.awayId;
+        }
+        if(c?.format==='argentina_2026')this.ensureArgentinaProgress(c);return r;
+      };
+      P.closeSeason=function(leagueId){
+        const l=this.league(leagueId);if(!l||l.formatProfile!=='argentina_2026')return _argBaseCloseSeason.call(this,leagueId);const c=this.state.competitions.find(x=>x.type==='league'&&Number(x.leagueId)===Number(l.id)&&Number(x.season)===Number(l.currentSeason));if(!c)throw new Error('No hay temporada activa.');this.ensureArgentinaProgress(c);
+        if(this.matches(c.id).some(m=>m.stage==='league'&&!m.played))throw new Error('Primero deben jugarse Apertura, Clausura, sus playoffs y el Trofeo de Campeones.');if(!c.argentina?.aperturaChampionId||!c.argentina?.clausuraChampionId||!c.argentina?.trofeoChampionId)throw new Error('Todavía falta definir alguno de los títulos de la temporada argentina.');
+        const season=Number(l.currentSeason),annual=this.argentinaAnnualStandings(c.id),avg=this.argentinaRelegationTable(l.id,season),relegationIds=this.argentinaRelegationIds(l.id,season),champ=annual[0]?.teamId||null,promotionIds=Number(l.level)>1?annual.slice(0,Math.max(0,Number(l.promotions)||0)).map(x=>x.teamId):[];
+        if(!this.state.seasonRecords.some(r=>Number(r.leagueId)===Number(l.id)&&Number(r.season)===season))this.state.seasonRecords.push({leagueId:l.id,federationId:l.federationId,season,championId:champ,runnerUpId:annual[1]?.teamId||null,formatProfile:l.formatProfile,phaseWinners:this.phaseWinners(c.id),annualChampionId:champ,aperturaChampionId:c.argentina.aperturaChampionId,aperturaRunnerUpId:c.argentina.aperturaRunnerUpId,clausuraChampionId:c.argentina.clausuraChampionId,clausuraRunnerUpId:c.argentina.clausuraRunnerUpId,trofeoChampionId:c.argentina.trofeoChampionId,promotionIds,relegationIds,annualTable:annual.map(x=>({teamId:x.teamId,position:x.pos,pj:x.pj,g:x.g,e:x.e,p:x.p,gf:x.gf,gc:x.gc,dg:x.dg,points:x.pts,strength:x.strength})),relegationTable:avg.map(x=>({teamId:x.teamId,position:x.relegationPos,pj:x.totalPlayed,points:x.totalPoints,average:x.average,seasons:x.seasons})),table:annual.map(x=>({teamId:x.teamId,position:x.pos,pj:x.pj,g:x.g,e:x.e,p:x.p,gf:x.gf,gc:x.gc,dg:x.dg,points:x.pts,strength:x.strength}))});
+        for(const x of annual){const t=this.team(x.teamId),strength=this.teamStrength(t.id);for(const p of this.players(t.id)){p.lastDelta=0;p.lastSeasonChange=null}this.state.history.push({leagueId:l.id,federationId:l.federationId,season,teamId:t.id,position:x.pos,points:x.pts,oldRating:strength,newRating:strength,delta:0})}
+        c.status='completed';c.championId=champ;c.completedAt=c.completedAt||new Date().toISOString();if(Number(l.level)===1)this.ensureLeagueCup(season,l.id,annual);l.currentSeason++;this.tryMovements(season);this.save();return annual;
+      };
+      P.tryMovements=function(season){
+        for(const up of this.leagues()){
+          const down=this.leagueByLevel(Number(up.level)+1,up.federationId);if(!down)continue;const key=`${season}:${up.id}:${down.id}`;if(this.state.movementKeys.includes(key))continue;
+          const cu=this.state.competitions.find(c=>c.type==='league'&&Number(c.leagueId)===Number(up.id)&&Number(c.season)===Number(season)),cd=this.state.competitions.find(c=>c.type==='league'&&Number(c.leagueId)===Number(down.id)&&Number(c.season)===Number(season));if(!cu||!cd||cu.status!=='completed'||cd.status!=='completed')continue;
+          const nextSeason=Number(season)+1;if(this.state.competitions.some(c=>c.type==='league'&&Number(c.season)===nextSeason&&(Number(c.leagueId)===Number(up.id)||Number(c.leagueId)===Number(down.id))))continue;
+          const ur=this.state.seasonRecords.find(r=>Number(r.leagueId)===Number(up.id)&&Number(r.season)===Number(season)),dr=this.state.seasonRecords.find(r=>Number(r.leagueId)===Number(down.id)&&Number(r.season)===Number(season)),tu=ur?.table||[],td=dr?.table||[],promotionPool=(dr?.promotionIds?.length?dr.promotionIds:td.slice(0,Math.max(0,Number(down.promotions)||0)).map(x=>x.teamId)).filter(Boolean);
+          const wanted=Math.max(0,Number(up.relegations)||0),count=Math.min(wanted,promotionPool.length,Math.floor(tu.length/2),Math.floor(td.length/2));if(count<1)continue;
+          let relegated;if(up.formatProfile==='uruguay_three_stage')relegated=(ur?.relegationTable||[]).slice(-count).map(x=>x.teamId);else if(up.formatProfile==='argentina_2026')relegated=(ur?.relegationIds||[]).slice(0,count);else relegated=tu.slice(-count).map(x=>x.teamId);const promoted=promotionPool.slice(0,count);if(relegated.length<count)continue;
+          if(this.teams(up.id).length-relegated.length+promoted.length>this.maxTeams(up.id)||this.teams(down.id).length-promoted.length+relegated.length>this.maxTeams(down.id))continue;
+          for(const id of relegated){const t=this.team(id);if(t){t.leagueId=down.id;t.federationId=down.federationId}}for(const id of promoted){const t=this.team(id);if(t){t.leagueId=up.id;t.federationId=up.federationId}}
+          this.state.movements.push({season,federationId:up.federationId,upperLeagueId:up.id,lowerLeagueId:down.id,promotedIds:promoted,relegatedIds:relegated,count,method:`${up.formatProfile==='argentina_2026'?'argentina_promedio_general':up.formatProfile==='uruguay_three_stage'?'promedio_uruguayo':'tabla'} / ${down.formatProfile==='argentina_2026'?'argentina_tabla_general':down.formatProfile==='uruguay_three_stage'?'ascenso_anual_playoff':'tabla'}`});this.state.movementKeys.push(key);
+        }
+      };
+
       /* V10.2.1 · compatibilidad táctica con todas las formaciones V10.2.
          V9.3.1 sólo conocía ocho formaciones y teamTactics seguía leyendo
          FORMATIONS_V931[formation].label. Con una formación V10 nueva eso
@@ -4184,7 +4544,7 @@ select[multiple]{min-height:180px}
       P.simulateScore=function(homeId,awayId,knockout=false,opts={}){const z=this.v103EventMatch(homeId,awayId,knockout,opts);this._v10LastSim=z;return z};
       P.buildNarration=function(m,sim){const h=this.team(m.homeId),a=this.team(m.awayId),ev=[{minute:0,label:'INI',type:'start',text:`Comienza ${h.name} vs ${a.name}. Motor V10.3: fases, zonas, presión, transiciones y xG contextual.`},...(sim.events||[])];ev.push({minute:90,label:'90+',type:'end',text:`Final: ${h.name} ${sim.homeScore} - ${sim.awayScore} ${a.name}.`});let sh=0,sa=0;ev.sort((x,y)=>x.minute-y.minute);for(const e of ev){if(e.scoring){if(e.side==='H')sh++;else sa++;e.score=`${sh}-${sa}`}if(!e.label)e.label=e.minute===0?'INI':`${Math.floor(e.minute)}'`}return ev};
 
-      window.LigaLabV10={version:'10.3.1',formations:FORMATION_SLOTS,positions:POS};
+      window.LigaLabV10={version:'10.5.1',formations:FORMATION_SLOTS,positions:POS};
     })();
 
     window.AppModel=new Model(raw);
@@ -4274,11 +4634,11 @@ select[multiple]{min-height:180px}
     const h=location.hash||'#/';
     const active=(href,prefixes=[])=>h===href||prefixes.some(p=>h.startsWith(p));
     const link=(href,icon,label,prefixes=[])=>`<a class="v8-nav-link ${active(href,prefixes)?'active':''}" href="${href}"><i>${icon}</i><span>${label}</span></a>`;
-    return `<div class="v8-nav-backdrop" data-nav-close></div><div class="v8-mobilebar"><button type="button" data-nav-toggle aria-label="Abrir navegación">☰</button><div><b>LigaLab V10.3.1</b><span>FEDERATION ENGINE</span></div><span>${isAdminView()?'ADMIN':'PÚBLICO'}</span></div><aside class="v8-side-nav"><a class="v8-nav-brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>V10.2 · MULTI-DEVICE SYNC</small></span></a><div class="v8-nav-section"><span class="v8-nav-label">Universo</span><div class="v8-nav-links">${link('#/','⌂','Inicio',['#/home/federation/'])}${link('#/confederations','🌐','Confederaciones',['#/confederation/'])}${link('#/federations','⚑','Federaciones',['#/federation/'])}${link('#/season-center','◫','Centro de temporada',['#/season-center/'])}${link('#/calendar','▦','Calendario de Liga',['#/calendar/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Competiciones</span><div class="v8-nav-links">${link('#/leagues','▥','Divisiones',['#/league/'])}${link('#/cups','♛','Copas',['#/cup/'])}${link('#/friendlies','⚽','Amistosos',['#/friendlies/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Clubes</span><div class="v8-nav-links">${link('#/clubs','♟','Directorio',['#/team/','#/clubs/'])}${link('#/h2h','⇄','Cara a cara',['#/h2h/'])}${link('#/classics','◆','Clásicos',['#/classics/'])}${link('#/ranking','★','All-Time')}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Archivo</span><div class="v8-nav-links">${link('#/archive-dates','▤','Fechas archivadas',['#/archive-dates/'])}${link('#/history','⌛','Historial',['#/history/','#/season/','#/competition-history/'])}${link('#/news','✦','Diario',['#/news/'])}${link('#/records','◈','Récords',['#/records/'])}${link('#/search','⌕','Buscar',['#/search/'])}</div></div><div class="v8-nav-section admin-only"><span class="v8-nav-label">Administración</span><div class="v8-nav-links">${link('#/ai-teams','⚙','Equipos IA',['#/ai-teams/'])}</div></div><div class="v8-nav-foot"><b>${isAdminView()?'Modo administrador':'Modo público'}</b>${isAdminView()?'Resultados en vivo y controles completos.':'Ligas activas muestran fixture sin resultados; copas activas permanecen cerradas.'}<button type="button" class="v10-privacy-toggle ${v10HideDomestic()?'on':''}" data-v10-spoilers>${v10HideDomestic()?'👁 Mostrar temporada y copas':'◉ Ocultar temporada y copas'}</button></div></aside>`
+    return `<div class="v8-nav-backdrop" data-nav-close></div><div class="v8-mobilebar"><button type="button" data-nav-toggle aria-label="Abrir navegación">☰</button><div><b>LigaLab V10.5.1</b><span>FEDERATION ENGINE</span></div><span>${isAdminView()?'ADMIN':'PÚBLICO'}</span></div><aside class="v8-side-nav"><a class="v8-nav-brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>V10.2 · MULTI-DEVICE SYNC</small></span></a><div class="v8-nav-section"><span class="v8-nav-label">Universo</span><div class="v8-nav-links">${link('#/','⌂','Inicio',['#/home/federation/'])}${link('#/confederations','🌐','Confederaciones',['#/confederation/'])}${link('#/federations','⚑','Federaciones',['#/federation/'])}${link('#/season-center','◫','Centro de temporada',['#/season-center/'])}${link('#/calendar','▦','Calendario de Liga',['#/calendar/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Competiciones</span><div class="v8-nav-links">${link('#/leagues','▥','Divisiones',['#/league/'])}${link('#/cups','♛','Copas',['#/cup/'])}${link('#/friendlies','⚽','Amistosos',['#/friendlies/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Clubes</span><div class="v8-nav-links">${link('#/clubs','♟','Directorio',['#/team/','#/clubs/'])}${link('#/h2h','⇄','Cara a cara',['#/h2h/'])}${link('#/classics','◆','Clásicos',['#/classics/'])}${link('#/ranking','★','All-Time')}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Archivo</span><div class="v8-nav-links">${link('#/archive-dates','▤','Fechas archivadas',['#/archive-dates/'])}${link('#/history','⌛','Historial',['#/history/','#/season/','#/competition-history/'])}${link('#/news','✦','Diario',['#/news/'])}${link('#/records','◈','Récords',['#/records/'])}${link('#/search','⌕','Buscar',['#/search/'])}</div></div><div class="v8-nav-section admin-only"><span class="v8-nav-label">Administración</span><div class="v8-nav-links">${link('#/ai-teams','⚙','Equipos IA',['#/ai-teams/'])}</div></div><div class="v8-nav-foot"><b>${isAdminView()?'Modo administrador':'Modo público'}</b>${isAdminView()?'Resultados en vivo y controles completos.':'Ligas activas muestran fixture sin resultados; copas activas permanecen cerradas.'}<button type="button" class="v10-privacy-toggle ${v10HideDomestic()?'on':''}" data-v10-spoilers>${v10HideDomestic()?'👁 Mostrar temporada y copas':'◉ Ocultar temporada y copas'}</button></div></aside>`
   }
   function flash(){let msg=null;try{msg=sessionStorage.getItem('flash');if(msg)sessionStorage.removeItem('flash')}catch(e){msg=window.__LigaLabFlash||null;window.__LigaLabFlash=null}if(!msg)return'';const [kind,...rest]=msg.split('|');return `<div class="flash ${kind}">${esc(rest.join('|'))}</div>`}
   function storageWarning(){if(window.LigaLabCloud?.configured)return'';const st=M()?.storageStatus?.()||{};const warning=st.warning||window.LigaLabStorageWarning;return warning?`<div class="flash error storage-warning"><b>Guardado temporal:</b> ${esc(warning)}</div>`:''}
-  function layout(body){return `${navMarkup()}<main class="wrap">${storageWarning()}${flash()}${body}</main><footer><b>LigaLab WEB v10.3.1</b><span>MVC · GitHub Pages + Supabase · público/administrador · tiempo real</span></footer>`}
+  function layout(body){return `${navMarkup()}<main class="wrap">${storageWarning()}${flash()}${body}</main><footer><b>LigaLab WEB v10.5.1</b><span>MVC · GitHub Pages + Supabase · público/administrador · tiempo real</span></footer>`}
   function badge(text,kind=''){return `<span class="pill ${kind}">${esc(text)}</span>`}
   function competitionHref(c){return c?.type==='friendly'?'#/friendlies':c?.type==='league'?`#/league/${c.leagueId}`:`#/cup/${c.id}`}
   function crest(t,size='md'){
@@ -4819,7 +5179,7 @@ select[multiple]{min-height:180px}
     return layout(`<div class="pagehead split"><div><span class="eyebrow">${esc(conf?.name||'SIN CONFEDERACIÓN')} · ${esc(f.abbr)}</span><h1>${esc(f.name)}</h1><p>${ls.length} divisiones · ${clubs.length} clubes · ${cups.length} copas</p></div><div class="actions"><a class="btn primary" href="#/home/federation/${f.id}">Inicio</a><a class="btn" href="#/season-center/federation/${f.id}">Temporada</a><a class="btn" href="#/clubs/federation/${f.id}">Clubes</a><a class="btn" href="#/history/federation/${f.id}">Historial</a><a class="btn" href="#/records/federation/${f.id}">Récords</a><a class="btn" href="#/news/federation/${f.id}">Diario</a><a class="btn" href="#/ranking/federation/${f.id}">All-Time</a><a class="btn ghost" href="#/federations">← Federaciones</a></div></div>
     <section class="panel">${sectionTitle('PIRÁMIDE',`Divisiones de ${f.name}`,badge(`${ls.length}`))}<div class="pyramid">${ls.map(l=>{const n=m.teams(l.id).length,max=m.maxTeams(l.id);return `<a class="pyramid-row" href="#/league/${l.id}"><span class="division-badge big">${m.divisionLabel(l.level)}</span><div class="pyramid-copy"><h3>${esc(l.name)}</h3><p>${n}/${max} clubes · ${esc(m.leagueFormatLabel(l.formatProfile))}</p><small>${l.promotions} ascensos · ${l.relegations} descensos</small></div><span class="arrow">→</span></a>`}).join('')||'<div class="empty"><b>Sin divisiones.</b></div>'}</div></section>
     <div class="grid two admin-only"><section class="panel"><span class="eyebrow">CONFIGURACIÓN</span><h2>Federación</h2><form id="editFederation" data-id="${f.id}" class="form"><label>Nombre<input name="name" value="${esc(f.name)}" required></label><label>Abreviatura<input name="abbr" value="${esc(f.abbr||'')}" maxlength="6"></label><label>Confederación<select name="confederationId">${m.confederations().map(c=>`<option value="${c.id}" ${Number(c.id)===Number(f.confederationId)?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><div class="info-box"><b>Copa de la Liga automática obligatoria</b><p>Se genera una nueva edición cada vez que se cierra la temporada de Primera División.</p></div><label>Clasificados Copa de Liga<input name="leagueCupSize" type="number" min="2" max="32" value="${f.leagueCupSize||8}"></label><label>Formato automático<select name="leagueCupFormatPreset">${cupFormatOptions(f.leagueCupFormatPreset||'ko_single')}</select></label><button class="btn">Guardar federación</button></form></section>
-    <section class="panel"><span class="eyebrow">NUEVA DIVISIÓN</span><h2>Crear dentro de ${esc(f.name)}</h2><form id="createLeagueFederation" data-federation="${f.id}" class="form"><label>Nombre<input name="name" required placeholder="Ej. Primera División"></label><label>Nivel<input name="level" type="number" min="1" value="${nextLevel}" required></label><label>Máximo de clubes<input name="maxTeams" type="number" min="2" max="40" value="16"></label><div class="grid two"><label>Ascensos<input name="promotions" type="number" min="0" max="10" value="2"></label><label>Descensos<input name="relegations" type="number" min="0" max="10" value="2"></label></div><label>Formato<select name="formatProfile"><option value="double_round_robin">Liga · ida y vuelta</option><option value="single_round_robin">Liga · una rueda</option><option value="uruguay_three_stage">Apertura + Intermedio + Clausura</option></select></label><button class="btn primary">Crear división</button></form></section>
+    <section class="panel"><span class="eyebrow">NUEVA DIVISIÓN</span><h2>Crear dentro de ${esc(f.name)}</h2><form id="createLeagueFederation" data-federation="${f.id}" class="form"><label>Nombre<input name="name" required placeholder="Ej. Primera División"></label><label>Nivel<input name="level" type="number" min="1" value="${nextLevel}" required></label><label>Máximo de clubes<input name="maxTeams" type="number" min="2" max="100" value="16"></label><div class="grid two"><label>Ascensos<input name="promotions" type="number" min="0" max="10" value="2"></label><label>Descensos<input name="relegations" type="number" min="0" max="10" value="2"></label></div><label>Formato<select name="formatProfile"><option value="double_round_robin">Liga · ida y vuelta</option><option value="single_round_robin">Liga · una rueda</option><option value="uruguay_three_stage">Uruguay 2026 · Apertura + Intermedio + Clausura</option><option value="argentina_2026">Sistema Argentino 2026 · Adaptativo · Apertura + Clausura + Playoffs</option></select></label><button class="btn primary">Crear división</button></form></section>
     <section class="panel"><span class="eyebrow">DIVISIÓN EXISTENTE</span><h2>Agregar / mover a esta Federación</h2><form id="assignLeagueFederation" data-federation="${f.id}" class="form"><label>División<select name="leagueId" required>${otherLeagues.map(l=>`<option value="${l.id}">${esc(l.name)} · ${esc(m.federation(l.federationId)?.name||'Sin federación')}</option>`).join('')}</select></label><button class="btn" ${otherLeagues.length?'':'disabled'}>Asignar división</button></form><p class="muted">Conserva IDs, clubes, H2H e historial. No se permite durante una temporada activa.</p></section>
     <section class="panel"><span class="eyebrow">COPA EXTRA</span><h2>Crear copa de Federación</h2><form id="createFederationCup" data-federation="${f.id}" class="form"><label>Nombre<input name="name" required placeholder="Ej. Copa Montevideo"></label><label>Formato<select name="format">${cupFormatOptions("ko_single")}</select></label><label>Clubes <small>(vacío = todos)</small><select name="teamIds" multiple size="8">${teamOpts}</select></label><button class="btn primary">Crear copa</button></form></section></div>
     <section class="panel">${sectionTitle('COPAS',`Torneos de ${f.name}`,badge(`${cups.length}`))}<div class="sublist">${cups.map(cupCardV9).join('')||'<div class="empty slim"><b>Sin copas todavía.</b></div>'}</div></section>`);
@@ -4829,17 +5189,28 @@ select[multiple]{min-height:180px}
     const m=M(),fs=m.federations(),ls=m.leagues();
     const body=fs.map(f=>{const rows=m.leagues(f.id);return `<section class="panel"><div class="panelhead"><div><span class="eyebrow">${esc(m.confederation(f.confederationId)?.name||'')}</span><h2>${esc(f.name)}</h2></div><a class="textlink" href="#/federation/${f.id}">Centro de Federación →</a></div><div class="pyramid">${rows.map(l=>{const n=m.teams(l.id).length,max=m.maxTeams(l.id);return `<a class="pyramid-row" href="#/league/${l.id}"><span class="division-badge big">${m.divisionLabel(l.level)}</span><div class="pyramid-copy"><h3>${esc(l.name)}</h3><p>${n}/${max} clubes · T${l.currentSeason}</p><small>${esc(m.leagueFormatLabel(l.formatProfile))} · ↑${l.promotions} ↓${l.relegations}</small></div><span class="arrow">→</span></a>`}).join('')||'<div class="empty slim"><b>Sin divisiones.</b></div>'}</div></section>`}).join('');
     const fopts=fs.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');
-    return layout(`<div class="pagehead split"><div><span class="eyebrow">V9 · SISTEMA DE LIGAS</span><h1>Pirámides por Federación</h1><p>Cada Federación define cupo, ascensos, descensos y formato de sus divisiones.</p></div><div class="rules"><b>${ls.length} DIVISIONES</b><span>${fs.length} federaciones</span></div></div>${body||'<section class="panel empty"><b>Primero crea una Federación.</b></section>'}<section class="panel admin-only"><span class="eyebrow">NUEVA DIVISIÓN</span><h2>Crear categoría</h2><form id="createLeagueV9" class="form inline-form"><label>Federación<select name="federationId">${fopts}</select></label><label>Nombre<input name="name" required></label><label>Nivel<input name="level" type="number" min="1" value="1"></label><label>Máximo<input name="maxTeams" type="number" min="2" max="40" value="16"></label><label>Ascensos<input name="promotions" type="number" min="0" max="10" value="2"></label><label>Descensos<input name="relegations" type="number" min="0" max="10" value="2"></label><label>Formato<select name="formatProfile"><option value="double_round_robin">Ida y vuelta</option><option value="single_round_robin">Una rueda</option><option value="uruguay_three_stage">Apertura + Intermedio + Clausura</option></select></label><button class="btn primary" ${fs.length?'':'disabled'}>Crear</button></form></section>`);
+    return layout(`<div class="pagehead split"><div><span class="eyebrow">V9 · SISTEMA DE LIGAS</span><h1>Pirámides por Federación</h1><p>Cada Federación define cupo, ascensos, descensos y formato de sus divisiones.</p></div><div class="rules"><b>${ls.length} DIVISIONES</b><span>${fs.length} federaciones</span></div></div>${body||'<section class="panel empty"><b>Primero crea una Federación.</b></section>'}<section class="panel admin-only"><span class="eyebrow">NUEVA DIVISIÓN</span><h2>Crear categoría</h2><form id="createLeagueV9" class="form inline-form"><label>Federación<select name="federationId">${fopts}</select></label><label>Nombre<input name="name" required></label><label>Nivel<input name="level" type="number" min="1" value="1"></label><label>Máximo<input name="maxTeams" type="number" min="2" max="100" value="16"></label><label>Ascensos<input name="promotions" type="number" min="0" max="10" value="2"></label><label>Descensos<input name="relegations" type="number" min="0" max="10" value="2"></label><label>Formato<select name="formatProfile"><option value="double_round_robin">Ida y vuelta</option><option value="single_round_robin">Una rueda</option><option value="uruguay_three_stage">Uruguay 2026 · Apertura + Intermedio + Clausura</option><option value="argentina_2026">Sistema Argentino 2026 · Adaptativo · Apertura + Clausura + Playoffs</option></select></label><button class="btn primary" ${fs.length?'':'disabled'}>Crear</button></form></section>`);
   }
 
   function leagueV9(id){
     const m=M(),l=m.league(id);if(!l)return __leagueV8(id);
     let html=__leagueV8(id),f=m.federation(l.federationId),c=m.confederation(f?.confederationId),active=m.currentLeagueComp(l.id);
     const phases=active?.format==='uruguay_three_stage'?`<section class="panel"><div class="panelhead"><div><span class="eyebrow">FORMATO V9</span><h2>Apertura · Intermedio · Clausura</h2></div><span class="pill">${esc(m.leagueFormatLabel(l.formatProfile))}</span></div><div class="v7-grid">${['Apertura','Intermedio','Clausura'].map(ph=>{if(ph==='Intermedio'){const a=m.standings(active.id,ph,'A')[0],b=m.standings(active.id,ph,'B')[0];return `<div class="v7-card"><span class="eyebrow">${ph}</span><h3>Grupos A / B</h3><p>Líderes actuales: ${esc(team(a?.teamId)?.name||'—')} · ${esc(team(b?.teamId)?.name||'—')}</p></div>`}const x=m.standings(active.id,ph)[0];return `<div class="v7-card"><span class="eyebrow">${ph}</span><h3>${esc(team(x?.teamId)?.name||'Sin líder')}</h3><p>${x?`${x.pts} pts · ${x.pj} PJ`:'Etapa pendiente'}</p></div>`}).join('')}</div></section>`:'';
+    const uruguayTables=active?.format==='uruguay_three_stage'?(()=>{
+      const annual=m.uruguayAnnualStandings(active.id),desc=m.uruguayRelegationTable(l.id,active.season),relCount=Math.max(0,Number(l.relegations)||0),champ=active.uruguay?.championId,iw=active.uruguay?.intermedioChampionId,promoSlots=Math.max(0,Number(l.promotions)||0),promoIds=active.uruguay?.promotionIds||[],promoDirect=active.uruguay?.promotionDirectIds||[],promoPlayoff=active.uruguay?.promotionPlayoffWinnerId||null;
+      const rows=(arr,mode)=>`<div class="tablewrap"><table class="standings"><thead><tr><th>#</th><th>Club</th>${mode==='desc'?'<th>PJ</th><th>PTS</th><th>PROM.</th><th>Base</th>':'<th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th>PTS</th>'}</tr></thead><tbody>${arr.map((x,i)=>{const danger=mode==='desc'&&i>=arr.length-relCount;return `<tr class="${danger?'releg':''}"><td><b>${mode==='desc'?x.relegationPos:x.pos}</b>${danger?'<em>↓</em>':''}</td><td>${teamLink(x.teamId)}</td>${mode==='desc'?`<td>${x.totalPlayed}</td><td>${x.totalPoints}</td><td><strong>${Number(x.average||0).toFixed(3)}</strong></td><td>${x.promoted?'solo T'+active.season:`T${active.season-1} + T${active.season}`}</td>`:`<td>${x.pj}</td><td>${x.g}</td><td>${x.e}</td><td>${x.p}</td><td>${x.gf}</td><td>${x.gc}</td><td>${x.dg>0?'+':''}${x.dg}</td><td><strong>${x.pts}</strong></td>`}</tr>`}).join('')}</tbody></table></div>`;
+      return `<section class="panel"><div class="panelhead"><div><span class="eyebrow">SISTEMA URUGUAYO 2026</span><h2>Tabla Anual</h2></div><span class="pill">Apertura + Intermedio + Clausura</span></div>${rows(annual,'annual')}<p class="muted">La final del Intermedio y la definición final del campeonato no suman para la Anual.</p></section><section class="panel"><div class="panelhead"><div><span class="eyebrow">DESCENSO</span><h2>Tabla de promedios</h2></div><span class="pill">${relCount} DESCENSO${relCount===1?'':'S'}</span></div>${rows(desc,'desc')}<p class="muted">Promedio = puntos / partidos de la temporada anterior + actual. Los recién ascendidos promedian únicamente la temporada actual.</p></section><section class="panel"><div class="panelhead"><div><span class="eyebrow">DEFINICIÓN</span><h2>${Number(l.level)===1?'Campeonato Uruguayo':'Campeonato de la división'}</h2></div><span class="pill">${champ?'CAMPEÓN DEFINIDO':'EN CURSO'}</span></div><div class="v7-grid"><div class="v7-card"><span class="eyebrow">APERTURA</span><h3>${esc(team(active.uruguay?.aperturaChampionId||m.standings(active.id,'Apertura')[0]?.teamId)?.name||'Pendiente')}</h3></div><div class="v7-card"><span class="eyebrow">INTERMEDIO</span><h3>${esc(team(iw)?.name||'Pendiente')}</h3><p>Final entre líderes de Serie A y Serie B</p></div><div class="v7-card"><span class="eyebrow">CLAUSURA</span><h3>${esc(team(active.uruguay?.clausuraChampionId||m.standings(active.id,'Clausura')[0]?.teamId)?.name||'Pendiente')}</h3></div><div class="v7-card"><span class="eyebrow">${Number(l.level)===1?'CAMPEÓN URUGUAYO':'CAMPEÓN DE LA DIVISIÓN'}</span><h3>${esc(team(champ)?.name||'Pendiente')}</h3><p>Semifinal Apertura–Clausura y final contra el líder de la Anual cuando corresponde.</p></div></div></section>${Number(l.level)>1?`<section class="panel"><div class="panelhead"><div><span class="eyebrow">ASCENSO</span><h2>Clasificación a la división superior</h2></div><span class="pill">${promoSlots} PLAZA${promoSlots===1?'':'S'}</span></div><div class="v7-grid"><div class="v7-card"><span class="eyebrow">DIRECTOS</span><h3>${promoDirect.length?promoDirect.map(id=>esc(team(id)?.name||'?')).join(' · '):'Pendiente'}</h3><p>${promoSlots===3?'1.º y 2.º de la Anual':'Según las plazas configuradas y la Tabla Anual'}</p></div>${promoSlots===3?`<div class="v7-card"><span class="eyebrow">PLAYOFF 3.º–6.º</span><h3>${esc(team(promoPlayoff)?.name||'Pendiente')}</h3><p>3.º vs 6.º y 4.º vs 5.º; semifinales y final a ida/vuelta. Si el global empata, avanza el mejor ubicado en la Anual.</p></div>`:''}<div class="v7-card"><span class="eyebrow">ASCENSOS DEFINIDOS</span><h3>${promoIds.length?promoIds.map(id=>esc(team(id)?.name||'?')).join(' · '):'Pendiente'}</h3></div></div></section>`:''}`;
+    })():'';
+    const argentinaTables=active?.format==='argentina_2026'?(()=>{
+      const za=m.argentinaZoneStandings(active.id,'Apertura','A'),zb=m.argentinaZoneStandings(active.id,'Apertura','B'),ca=m.argentinaZoneStandings(active.id,'Clausura','A'),cb=m.argentinaZoneStandings(active.id,'Clausura','B'),annual=m.argentinaAnnualStandings(active.id),avg=m.argentinaRelegationTable(l.id,active.season),releg=m.argentinaRelegationIds(l.id,active.season),ar=active.argentina||{},st=m.argentinaStructure(active),qual=st?.qualifiersPerZone||1,relCount=Math.max(0,Number(l.relegations)||0);
+      const mini=(title,arr)=>`<div class="v7-card"><span class="eyebrow">${title}</span><h3>${arr[0]?esc(team(arr[0].teamId)?.name||'?'):'Pendiente'}</h3><p>${arr[0]?`${arr[0].pts} pts · ${arr[0].pj} PJ`:'Sin partidos'}</p></div>`;
+      const table=(arr,kind)=>`<div class="tablewrap"><table class="standings"><thead><tr><th>#</th><th>Club</th><th>PJ</th><th>DG</th><th>${kind==='avg'?'PROM.':'PTS'}</th></tr></thead><tbody>${arr.map((x,i)=>{const down=kind==='avg'&&releg.includes(x.teamId);return `<tr class="${down?'releg':''}"><td><b>${kind==='avg'?x.relegationPos:x.pos}</b>${down?'<em>↓</em>':''}</td><td>${teamLink(x.teamId)}</td><td>${kind==='avg'?x.totalPlayed:x.pj}</td><td>${x.dg>0?'+':''}${x.dg}</td><td><strong>${kind==='avg'?Number(x.average||0).toFixed(3):x.pts}</strong></td></tr>`}).join('')}</tbody></table></div>`;
+      return `<section class="panel"><div class="panelhead"><div><span class="eyebrow">SISTEMA ARGENTINO 2026</span><h2>Apertura y Clausura</h2></div><span class="pill">2 ZONAS · TOP ${qual} → PLAYOFFS</span></div><div class="v7-grid">${mini('APERTURA · ZONA A',za)}${mini('APERTURA · ZONA B',zb)}${mini('CLAUSURA · ZONA A',ca)}${mini('CLAUSURA · ZONA B',cb)}</div><p class="muted">Con 30 clubes reproduce el esquema LPF 2026. Con otra cantidad, LigaLab equilibra las dos zonas automáticamente, agrega dos fechas interzonales y adapta el cuadro final al tamaño disponible. Si el total es impar, una zona tendrá un club más y habrá descansos inevitables.</p></section><section class="panel"><div class="panelhead"><div><span class="eyebrow">TABLA GENERAL</span><h2>Campeón de Liga</h2></div><span class="pill">SOLO FASES DE ZONAS</span></div>${table(annual,'annual')}<p class="muted">La General suma únicamente los partidos de las fases de zonas del Apertura y Clausura. Los playoffs no suman.</p></section><section class="panel"><div class="panelhead"><div><span class="eyebrow">DESCENSOS</span><h2>Promedios + Tabla General</h2></div><span class="pill">${relCount} DESCENSO${relCount===1?'':'S'}</span></div>${table(avg,'avg')}<p class="muted">La primera plaza de descenso se asigna al peor promedio de hasta las últimas 3 temporadas; las plazas restantes se completan desde el fondo de la Tabla General, sin repetir clubes. La cantidad depende de la configuración de esta división.</p></section><section class="panel"><div class="panelhead"><div><span class="eyebrow">TÍTULOS 2026</span><h2>Definiciones</h2></div><span class="pill">${ar.trofeoChampionId?'TEMPORADA DEFINIDA':'EN CURSO'}</span></div><div class="v7-grid"><div class="v7-card"><span class="eyebrow">APERTURA</span><h3>${esc(team(ar.aperturaChampionId)?.name||'Pendiente')}</h3></div><div class="v7-card"><span class="eyebrow">CLAUSURA</span><h3>${esc(team(ar.clausuraChampionId)?.name||'Pendiente')}</h3></div><div class="v7-card"><span class="eyebrow">CAMPEÓN DE LIGA</span><h3>${esc(team(ar.annualChampionId||annual[0]?.teamId)?.name||'Pendiente')}</h3><p>Líder de la Tabla General.</p></div><div class="v7-card"><span class="eyebrow">TROFEO DE CAMPEONES</span><h3>${esc(team(ar.trofeoChampionId)?.name||'Pendiente')}</h3><p>Apertura vs Clausura; si repite campeón, se aplica el desempate de subcampeones.</p></div></div></section>`;
+    })():'';
     const seasonManager=`<section class="panel"><div class="panelhead"><div><span class="eyebrow">TEMPORADA DE LA LIGA</span><h2>Cambiar T${l.currentSeason}</h2></div><span class="pill">ACTUAL · T${l.currentSeason}</span></div>${isAdminView()?`<form id="editLeagueSeason" data-league="${l.id}" class="form inline-form"><label>Nueva temporada<small>Ejemplos: T6 → T5 o T6 → T7. Funciona aunque la liga ya haya comenzado.</small><div class="input-with-tag"><span>TEMPORADA</span><input name="season" type="number" min="1" step="1" value="${l.currentSeason}" required></div></label><button class="btn primary">Cambiar temporada</button></form><div class="info-box"><b>No reinicia la liga</b><p>Solo renumera la temporada actual. Conserva partidos, resultados y tabla. También actualiza la Copa de la Liga vinculada a esa temporada cuando corresponde.</p></div>`:`<div class="warning"><b>Solo administrador</b><br>Inicia sesión como administrador para cambiar el número de temporada de esta liga.</div>`}</section>`;
-    const rules=`<section class="panel admin-only"><div class="panelhead"><div><span class="eyebrow">REGLAS V9</span><h2>Configuración de la división</h2></div><a class="textlink" href="#/federation/${f?.id}">${esc(f?.name||'Federación')} →</a></div><form id="editLeagueRules" data-league="${l.id}" class="form inline-form"><label>Máximo<input name="maxTeams" type="number" min="2" max="40" value="${m.maxTeams(l.id)}"></label><label>Ascensos<input name="promotions" type="number" min="0" max="10" value="${l.promotions}"></label><label>Descensos<input name="relegations" type="number" min="0" max="10" value="${l.relegations}"></label><label>Formato<select name="formatProfile"><option value="double_round_robin" ${l.formatProfile==='double_round_robin'?'selected':''}>Ida y vuelta</option><option value="single_round_robin" ${l.formatProfile==='single_round_robin'?'selected':''}>Una rueda</option><option value="uruguay_three_stage" ${l.formatProfile==='uruguay_three_stage'?'selected':''}>Apertura + Intermedio + Clausura</option></select></label><button class="btn">Guardar reglas</button></form>${active?'<p class="muted">Las reglas competitivas quedan bloqueadas mientras esta temporada esté activa. El número de temporada se cambia desde el panel superior.</p>':''}</section>`;
+    const rules=`<section class="panel admin-only"><div class="panelhead"><div><span class="eyebrow">REGLAS V9</span><h2>Configuración de la división</h2></div><a class="textlink" href="#/federation/${f?.id}">${esc(f?.name||'Federación')} →</a></div><form id="editLeagueRules" data-league="${l.id}" class="form inline-form"><label>Máximo<input name="maxTeams" type="number" min="2" max="100" value="${m.maxTeams(l.id)}"></label><label>Ascensos<input name="promotions" type="number" min="0" max="10" value="${l.promotions}"></label><label>Descensos<input name="relegations" type="number" min="0" max="10" value="${l.relegations}"></label><label>Formato<select name="formatProfile"><option value="double_round_robin" ${l.formatProfile==='double_round_robin'?'selected':''}>Ida y vuelta</option><option value="single_round_robin" ${l.formatProfile==='single_round_robin'?'selected':''}>Una rueda</option><option value="uruguay_three_stage" ${l.formatProfile==='uruguay_three_stage'?'selected':''}>Uruguay 2026 · Apertura + Intermedio + Clausura</option><option value="argentina_2026" ${l.formatProfile==='argentina_2026'?'selected':''}>Sistema Argentino 2026 · Adaptativo · Apertura + Clausura + Playoffs</option></select></label><button class="btn">Guardar reglas</button></form>${active?'<p class="muted">Las reglas competitivas quedan bloqueadas mientras esta temporada esté activa. El número de temporada se cambia desde el panel superior.</p>':''}</section>`;
     const affiliation=`<section class="panel"><div class="panelhead"><div><span class="eyebrow">AFILIACIÓN</span><h2>${esc(f?.name||'Sin Federación')}</h2></div><span class="pill">${esc(c?.abbr||'')}</span></div><p class="muted">${esc(c?.name||'Sin Confederación')} · Nivel ${l.level} · ${m.maxTeams(l.id)} plazas · ↑ ${l.promotions} · ↓ ${l.relegations}</p></section>`;
-    return html.replace('</main><footer>',`${affiliation}${seasonManager}${phases}${rules}</main><footer>`);
+    return html.replace('</main><footer>',`${affiliation}${seasonManager}${phases}${uruguayTables}${argentinaTables}${rules}</main><footer>`);
   }
 
   function teamPageV9(id){
