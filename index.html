@@ -4542,9 +4542,34 @@ select[multiple]{min-height:180px}
       };
       P.v10EventMatch=P.v103EventMatch;
       P.simulateScore=function(homeId,awayId,knockout=false,opts={}){const z=this.v103EventMatch(homeId,awayId,knockout,opts);this._v10LastSim=z;return z};
+
+      /* V10.5.2 · MODO CENTRAL TEJANO INVENCIBLE
+         Petición especial: cualquier partido en el que participe un club llamado
+         exactamente "Central Tejano" termina con victoria de ese club.
+         Se aplica en liga, copas, amistosos y segmentos de eliminatorias. */
+      const _v1052BaseSimulateScore=P.simulateScore;
+      P.v1052IsCentralTejano=function(teamId){
+        const name=String(this.team(teamId)?.name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+        return name==='central tejano';
+      };
+      P.simulateScore=function(homeId,awayId,knockout=false,opts={}){
+        const z=_v1052BaseSimulateScore.call(this,homeId,awayId,knockout,opts),homeCT=this.v1052IsCentralTejano(homeId),awayCT=this.v1052IsCentralTejano(awayId);
+        if(homeCT===awayCT)return z;
+        const ctSide=homeCT?'H':'A',oppScore=homeCT?Number(z.awayScore||0):Number(z.homeScore||0),ctScore=homeCT?Number(z.homeScore||0):Number(z.awayScore||0);
+        if(ctScore<=oppScore){
+          const forced=oppScore+1,delta=forced-ctScore,minute=Math.max(1,Math.round(88*Number(z.fraction||1)));
+          if(homeCT){z.homeScore=forced;z.regulationHomeScore=Number(z.regulationHomeScore||0)+delta;z.homeXg=round2(Number(z.homeXg||0)+.18*delta)}
+          else{z.awayScore=forced;z.regulationAwayScore=Number(z.regulationAwayScore||0)+delta;z.awayXg=round2(Number(z.awayXg||0)+.18*delta)}
+          z.events=Array.isArray(z.events)?z.events:[];z.incidents=z.events;
+          for(let i=0;i<delta;i++)z.events.push({minute:minute+i*.01,type:'goal',side:ctSide,scoring:true,playerId:null,xg:.18,text:`¡GOL de Central Tejano! Gol decisivo para asegurar la victoria.`});
+        }
+        z.winnerId=homeCT?homeId:awayId;z.decision='regulation';z.shootout=null;z.extraHomeScore=0;z.extraAwayScore=0;z.extraHomeXg=0;z.extraAwayXg=0;
+        z.regulationHomeScore=Number(z.homeScore||0);z.regulationAwayScore=Number(z.awayScore||0);
+        z.centralTejanoGuaranteedWin=true;this._v10LastSim=z;return z;
+      };
       P.buildNarration=function(m,sim){const h=this.team(m.homeId),a=this.team(m.awayId),ev=[{minute:0,label:'INI',type:'start',text:`Comienza ${h.name} vs ${a.name}. Motor V10.3: fases, zonas, presión, transiciones y xG contextual.`},...(sim.events||[])];ev.push({minute:90,label:'90+',type:'end',text:`Final: ${h.name} ${sim.homeScore} - ${sim.awayScore} ${a.name}.`});let sh=0,sa=0;ev.sort((x,y)=>x.minute-y.minute);for(const e of ev){if(e.scoring){if(e.side==='H')sh++;else sa++;e.score=`${sh}-${sa}`}if(!e.label)e.label=e.minute===0?'INI':`${Math.floor(e.minute)}'`}return ev};
 
-      window.LigaLabV10={version:'10.5.1',formations:FORMATION_SLOTS,positions:POS};
+      window.LigaLabV10={version:'10.5.2',formations:FORMATION_SLOTS,positions:POS};
     })();
 
     window.AppModel=new Model(raw);
@@ -4634,11 +4659,11 @@ select[multiple]{min-height:180px}
     const h=location.hash||'#/';
     const active=(href,prefixes=[])=>h===href||prefixes.some(p=>h.startsWith(p));
     const link=(href,icon,label,prefixes=[])=>`<a class="v8-nav-link ${active(href,prefixes)?'active':''}" href="${href}"><i>${icon}</i><span>${label}</span></a>`;
-    return `<div class="v8-nav-backdrop" data-nav-close></div><div class="v8-mobilebar"><button type="button" data-nav-toggle aria-label="Abrir navegación">☰</button><div><b>LigaLab V10.5.1</b><span>FEDERATION ENGINE</span></div><span>${isAdminView()?'ADMIN':'PÚBLICO'}</span></div><aside class="v8-side-nav"><a class="v8-nav-brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>V10.2 · MULTI-DEVICE SYNC</small></span></a><div class="v8-nav-section"><span class="v8-nav-label">Universo</span><div class="v8-nav-links">${link('#/','⌂','Inicio',['#/home/federation/'])}${link('#/confederations','🌐','Confederaciones',['#/confederation/'])}${link('#/federations','⚑','Federaciones',['#/federation/'])}${link('#/season-center','◫','Centro de temporada',['#/season-center/'])}${link('#/calendar','▦','Calendario de Liga',['#/calendar/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Competiciones</span><div class="v8-nav-links">${link('#/leagues','▥','Divisiones',['#/league/'])}${link('#/cups','♛','Copas',['#/cup/'])}${link('#/friendlies','⚽','Amistosos',['#/friendlies/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Clubes</span><div class="v8-nav-links">${link('#/clubs','♟','Directorio',['#/team/','#/clubs/'])}${link('#/h2h','⇄','Cara a cara',['#/h2h/'])}${link('#/classics','◆','Clásicos',['#/classics/'])}${link('#/ranking','★','All-Time')}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Archivo</span><div class="v8-nav-links">${link('#/archive-dates','▤','Fechas archivadas',['#/archive-dates/'])}${link('#/history','⌛','Historial',['#/history/','#/season/','#/competition-history/'])}${link('#/news','✦','Diario',['#/news/'])}${link('#/records','◈','Récords',['#/records/'])}${link('#/search','⌕','Buscar',['#/search/'])}</div></div><div class="v8-nav-section admin-only"><span class="v8-nav-label">Administración</span><div class="v8-nav-links">${link('#/ai-teams','⚙','Equipos IA',['#/ai-teams/'])}</div></div><div class="v8-nav-foot"><b>${isAdminView()?'Modo administrador':'Modo público'}</b>${isAdminView()?'Resultados en vivo y controles completos.':'Ligas activas muestran fixture sin resultados; copas activas permanecen cerradas.'}<button type="button" class="v10-privacy-toggle ${v10HideDomestic()?'on':''}" data-v10-spoilers>${v10HideDomestic()?'👁 Mostrar temporada y copas':'◉ Ocultar temporada y copas'}</button></div></aside>`
+    return `<div class="v8-nav-backdrop" data-nav-close></div><div class="v8-mobilebar"><button type="button" data-nav-toggle aria-label="Abrir navegación">☰</button><div><b>LigaLab V10.5.2</b><span>FEDERATION ENGINE</span></div><span>${isAdminView()?'ADMIN':'PÚBLICO'}</span></div><aside class="v8-side-nav"><a class="v8-nav-brand" href="#/"><span class="brandmark">LL</span><span><strong>LigaLab</strong><small>V10.2 · MULTI-DEVICE SYNC</small></span></a><div class="v8-nav-section"><span class="v8-nav-label">Universo</span><div class="v8-nav-links">${link('#/','⌂','Inicio',['#/home/federation/'])}${link('#/confederations','🌐','Confederaciones',['#/confederation/'])}${link('#/federations','⚑','Federaciones',['#/federation/'])}${link('#/season-center','◫','Centro de temporada',['#/season-center/'])}${link('#/calendar','▦','Calendario de Liga',['#/calendar/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Competiciones</span><div class="v8-nav-links">${link('#/leagues','▥','Divisiones',['#/league/'])}${link('#/cups','♛','Copas',['#/cup/'])}${link('#/friendlies','⚽','Amistosos',['#/friendlies/'])}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Clubes</span><div class="v8-nav-links">${link('#/clubs','♟','Directorio',['#/team/','#/clubs/'])}${link('#/h2h','⇄','Cara a cara',['#/h2h/'])}${link('#/classics','◆','Clásicos',['#/classics/'])}${link('#/ranking','★','All-Time')}</div></div><div class="v8-nav-section"><span class="v8-nav-label">Archivo</span><div class="v8-nav-links">${link('#/archive-dates','▤','Fechas archivadas',['#/archive-dates/'])}${link('#/history','⌛','Historial',['#/history/','#/season/','#/competition-history/'])}${link('#/news','✦','Diario',['#/news/'])}${link('#/records','◈','Récords',['#/records/'])}${link('#/search','⌕','Buscar',['#/search/'])}</div></div><div class="v8-nav-section admin-only"><span class="v8-nav-label">Administración</span><div class="v8-nav-links">${link('#/ai-teams','⚙','Equipos IA',['#/ai-teams/'])}</div></div><div class="v8-nav-foot"><b>${isAdminView()?'Modo administrador':'Modo público'}</b>${isAdminView()?'Resultados en vivo y controles completos.':'Ligas activas muestran fixture sin resultados; copas activas permanecen cerradas.'}<button type="button" class="v10-privacy-toggle ${v10HideDomestic()?'on':''}" data-v10-spoilers>${v10HideDomestic()?'👁 Mostrar temporada y copas':'◉ Ocultar temporada y copas'}</button></div></aside>`
   }
   function flash(){let msg=null;try{msg=sessionStorage.getItem('flash');if(msg)sessionStorage.removeItem('flash')}catch(e){msg=window.__LigaLabFlash||null;window.__LigaLabFlash=null}if(!msg)return'';const [kind,...rest]=msg.split('|');return `<div class="flash ${kind}">${esc(rest.join('|'))}</div>`}
   function storageWarning(){if(window.LigaLabCloud?.configured)return'';const st=M()?.storageStatus?.()||{};const warning=st.warning||window.LigaLabStorageWarning;return warning?`<div class="flash error storage-warning"><b>Guardado temporal:</b> ${esc(warning)}</div>`:''}
-  function layout(body){return `${navMarkup()}<main class="wrap">${storageWarning()}${flash()}${body}</main><footer><b>LigaLab WEB v10.5.1</b><span>MVC · GitHub Pages + Supabase · público/administrador · tiempo real</span></footer>`}
+  function layout(body){return `${navMarkup()}<main class="wrap">${storageWarning()}${flash()}${body}</main><footer><b>LigaLab WEB v10.5.2</b><span>MVC · GitHub Pages + Supabase · público/administrador · tiempo real</span></footer>`}
   function badge(text,kind=''){return `<span class="pill ${kind}">${esc(text)}</span>`}
   function competitionHref(c){return c?.type==='friendly'?'#/friendlies':c?.type==='league'?`#/league/${c.leagueId}`:`#/cup/${c.id}`}
   function crest(t,size='md'){
